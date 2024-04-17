@@ -20,7 +20,11 @@ class Runner():
         self.params = params
         self.test_puzzles = test_puzzles
         self.model_dir = params.model_dir + '/' + params.domain + '/' + params.job + '/' + params.base_model
+        
         self.prompt = open(params.prompt_file).read()
+        # legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
+        # self.prompt = self.prompt.replace('{puzzle_legend}', legend[self.params.domain]).replace('{domain}', self.params.domain)
+
         self.best_test = float('inf')
         if not params.test:
             os.makedirs(self.model_dir, exist_ok = True)
@@ -166,7 +170,6 @@ class Runner():
         time_p, time_ref = [], []
         solver = get_improved_heuristic_solver(AStar_maze if self.params.domain == 'maze' else AStar_sokoban)
         # solver = get_random_heuristic_solver(AStar_maze if self.params.domain == 'maze' else AStar_sokoban)
-        time_ref = self.get_astar_runtimes()
         with torch.no_grad():
             model.eval()
             # model, kv_cache, prompt = self.prepare_model_for_astar(model, self.prompt)
@@ -186,7 +189,8 @@ class Runner():
                     swc_p.append(len(ref_alg.optimal_plan)/len(alg.optimal_plan))
                 p_bar.set_postfix({'swc': round(sum(swc_p)/(i + 1), 2), 'ilr': round(sum(ilr_p)/(i + 1), 4), 'ilr_p': round(ilr_p[-1], 2), 'swc_p': round(swc_p[-1], 2)})
 
-        time_ref = self.get_astar_runtimes()
+        # time_ref = self.get_astar_runtimes()
+        time_ref = [0] * len(time_p)
         ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, itr, itr_optimal = self.get_ilr_metrics(ilr_p, swc_p, time_p, time_ref)
 
         print(f'ILR-on-solved: {ilr}')
@@ -241,7 +245,13 @@ class Runner():
                 outputs = model.model.generate(**batch, do_sample = True, top_k = 5, num_beams = 1, max_new_tokens = 5, pad_token_id=model.tokenizer.eos_token_id)
                 text_outputs = model.tokenizer.batch_decode(outputs, skip_special_tokens = True)
                 diffs = extract_differences(text_outputs)
-                gt_diffs = [int(d[2] - d[1]) for d in raw_data]
+                if self.params.target == '_dec':
+                    gt_diffs = [int(d[3] + d[4] - d[2]) for d in raw_data]
+                else:
+                    if len(raw_data[0]) == 3:
+                        gt_diffs = [int(d[2] - d[1]) for d in raw_data]
+                    elif len(raw_data[0]) == 5:
+                        gt_diffs = [int(d[3] - d[2]) for d in raw_data]
                 preds.extend(diffs)
                 gts.extend(gt_diffs)
                 disp_diffs = random.sample([(d,g) for d, g in zip(diffs, gt_diffs)], min(4, len(diffs)))
@@ -263,7 +273,7 @@ class Runner():
             print(f'Overestimated {overestimated_p}% by {overestimated_a}')
             print(f'Underestimated {underestimated_p}% by {underestimated_a}')
             print(f'Optimally predicted {optimal_p}% points')
-            print(f'Avg Diff with: {tuple((i, get_score([i] * len(gts), gts)) for i in range(9 if self.params.domain == "sokoban" else 6))}')
+            print(f'Avg Diff with: {tuple((i, get_score([i] * len(gts), gts)) for i in range(11 if self.params.domain == "sokoban" else 6))}')
             print(f'Dist: {Counter(preds)}')
             if self.best_test == avg_diff and not self.params.test:
                 self.save_model(model, epoch, 'model_best_test.pth') # NOTE: Never load from model_best_test.pth to continue training

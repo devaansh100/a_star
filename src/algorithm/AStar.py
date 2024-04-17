@@ -96,7 +96,7 @@ def get_improved_heuristic_solver(solver):
 	class ModelAStar(solver):
 		def __init__(self, *args, **kwargs):
 			self.model = kwargs['model']
-			self.prompt = kwargs['prompt']
+			self.prompt = kwargs['prompt'].replace('{initial_str}', args[0])
 			self.domain = kwargs['domain']
 			# self.kv_cache = kwargs['kv_cache']
 			self.device = kwargs['device']

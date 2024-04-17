@@ -227,9 +227,38 @@ def annotate_deceptive_nodes(alg):
 		counted_nodes = counted_nodes.union(deceptive_nodes)
 
 def create_supervision(params, solver = None):
+	
+	def random_sample(closed_set):
+		return closed_set.pop(0)
+	
+	def deception_sample(closed_set):
+		scores = torch.tensor([node.deception_score for node in closed_set], dtype = torch.float64)
+		weights = torch.softmax(scores, -1)
+		node = np.random.choice(closed_set, p = weights)
+		closed_set.remove(node)
+		return node
+	
+	def optimal_sample(alg, num_chosen):
+		optimal_plan = alg.optimal_plan.copy()
+		nodes = random.sample(optimal_plan, min(num_chosen, len(optimal_plan)))
+		indices = [optimal_plan.index(node) for node in nodes]
+		optimal_costs = [len(optimal_plan) - idx for idx in indices]
+		# datapoints = []
+		# for node, optimal_cost in zip(nodes, optimal_costs):
+		# 	datapoints.append((puzzle_str, node.h, optimal_cost))
+		return nodes, optimal_costs
+	
+	def get_puzzle_str(alg, node):
+		if params.domain == 'sokoban':
+			puzzle_str = convert_array_to_sb(alg.puzzle, alg.docks, node.boxes, node.pos)
+		elif params.domain == 'maze':
+			puzzle_str = convert_array_to_maze(alg.puzzle, node.pos, alg.goal)
+		return puzzle_str
+
 	solver = AStar_sokoban if params.domain == 'sokoban' else AStar_maze if solver is None else solver
 	path = f'{params.data_dir}/{params.dataset}'	
 	for split in ['train', 'val']:
+		seqs_per_puzzle = params.train_seqs if split == 'train' else params.val_seqs
 		alg_files = glob.glob(f'{path}/{split}/*.pkl')
 		for alg_file in alg_files:
 			try:
@@ -242,59 +271,79 @@ def create_supervision(params, solver = None):
 			with open(alg_file, 'rb') as f:
 				algs = pkl.load(f)
 			for alg in tqdm(algs, desc = alg_file):
+				initial_str = get_puzzle_str(alg, alg.closed[0])
 				closed_set = alg.closed.copy()
-				if params.sample == 'random':
+				if 'rand' in params.sample:
 					random.shuffle(closed_set)
-				elif params.sample == 'deception':
-					annotate_deceptive_nodes(alg)
-					# scores = torch.tensor([node.deception_score for node in closed_set], dtype = torch.float64)
-					# closed_set = list(filter(lambda node : scores.mean() - 1 * scores.std() < node.deception_score < scores.mean() + 1 * scores.std(), closed_set))
-				num_chosen, iters = 5 if split == 'val' else 15, 0
+				annotate_deceptive_nodes(alg)
+				num_chosen, iters = seqs_per_puzzle, 0
 				while num_chosen > 0 and len(closed_set) > 0:
-					# if iters == 10: # A lot of the points could simply be deadlocked, pick up points from the optimal path
-					# 	optimal_plan = alg.optimal_plan.copy()
-					# 	nodes = random.sample(optimal_plan, num_chosen)
-					# 	indices = [optimal_plan.index(node) for node in nodes]
-					# 	optimal_costs = [len(optimal_plan) - idx for idx in indices]
-					# 	for node, optimal_cost in zip(nodes, optimal_costs):
-					# 		dataset.append((puzzle_str, node.h, optimal_cost))
-					# 	break
 					if params.sample == 'random':
-						node = closed_set.pop()
+						node = random_sample(closed_set)
+
+					elif params.sample == 'optimal':
+						nodes, optimal_costs = optimal_sample(alg, num_chosen)
+						num_chosen -= len(nodes)
+						for node, optimal_cost in zip(nodes, optimal_costs):
+							dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost, node.deception_score))
+						node = nodes[0]
+
 					elif params.sample == 'deception':
-						scores = torch.tensor([node.deception_score for node in closed_set], dtype = torch.float64)
-						weights = torch.softmax(scores, -1)
-						node = np.random.choice(closed_set, p = weights)
-						closed_set.remove(node)
+						node = deception_sample(closed_set)
+
+					elif 'rand10_' in params.sample:
+						if num_chosen > (seqs_per_puzzle - 10): # seqs_per_puzzle // 2:
+							node = random_sample(closed_set)
+						else:
+							if 'opt' in params.sample: # rand_opt
+								nodes, optimal_costs = optimal_sample(alg, num_chosen)
+								num_chosen -= len(nodes)
+								for node, optimal_cost in zip(nodes, optimal_costs):
+									dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost, node.deception_score))
+							elif 'dec' in params.sample: # rand_dec
+								node = deception_sample(closed_set)
+							
+					elif params.sample == 'opt_dec10':
+						if num_chosen > (seqs_per_puzzle - 10): # seqs_per_puzzle // 2:
+							node = deception_sample(closed_set)
+						else:
+							nodes, optimal_costs = optimal_sample(alg, num_chosen)
+							num_chosen -= len(nodes)
+							for node, optimal_cost in zip(nodes, optimal_costs):
+								dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost, node.deception_score))
+
 					if node not in alg.optimal_plan:
-						if params.domain == 'sokoban':
-							puzzle_str = convert_array_to_sb(alg.puzzle, alg.docks, node.boxes, node.pos)
-						elif params.domain == 'maze':
-							puzzle_str = convert_array_to_maze(alg.puzzle, node.pos, alg.goal)
-						# print(puzzle_str)
-						# breakpoint()
+						puzzle_str = get_puzzle_str(alg, node)
 						new_alg = solver(puzzle_str, terminate_after = 7000)
 						new_alg.search()
 						if new_alg.optimal_plan is not None:
 							optimal_cost = len(new_alg.optimal_plan)
-							dataset.append((puzzle_str, node.h, optimal_cost))
+							dataset.append((initial_str, puzzle_str, node.h, optimal_cost, node.deception_score))
 							num_chosen -= 1
 							iters = 0
 					iters += 1
-			alg_file = alg_file.split('/')[-1]
+			alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{params.sample}{params.target}.pkl')
 			with open(f'{path}/{split}/supervised_{alg_file}', 'wb') as f:
 				pkl.dump(dataset, f)
 			print(f'Created {len(dataset)}')
+
 
 def tokenize_data(params, datapoints, tokenizer, filename):
 	legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
 	data_inputs, data_labels = [], []
 	with open(params.prompt_file) as f:
 		prompt = f.read()
-	for (puzzle_str, heuristic, optimal_cost) in tqdm(datapoints, desc = filename):
-		# optimal_cost is actually counting one extra step, since start and goal are in the plan for maze. In sokoban,  you don't end at the goal
-		difference = optimal_cost - heuristic
-		input_prompt = prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(int(heuristic)))
+	for datapoint in tqdm(datapoints, desc = filename):
+		if len(datapoint) == 3:
+			puzzle_str, heuristic, optimal_cost = datapoint
+			initial_str, deception_score = '', 0
+		elif len(datapoint) == 5:
+			initial_str, puzzle_str, heuristic, optimal_cost, deception_score = datapoint
+			if params.target == '':
+				initial_str, deception_score = '', 0
+		# optimal_cost is actually counting one extra step, since start and goal are in the plan for maze. In sokoban, you don't end at the goal
+		difference = optimal_cost + deception_score - heuristic
+		input_prompt = prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(int(heuristic))).replace('{initial_str}', initial_str)
 		input_prompt = input_prompt.replace('{puzzle_legend}', legend[params.domain]).replace('{domain}', params.domain)
 		input_ids = tokenizer(input_prompt).input_ids
 		labels = tokenizer(str(int(difference)), add_special_tokens = 't5' in params.base_model).input_ids
