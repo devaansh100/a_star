@@ -2,7 +2,6 @@ import heapq
 import numpy as np
 import torch
 from .utils import *
-import bisect
 
 class Node():
 	def __init__(self, pos, g, h = 0):
@@ -12,8 +11,6 @@ class Node():
 		self.parent = None
 		self.children = []
 		self.is_optimal = False
-		self.frontier = None
-		self.frontier_snapshots = []
 		self.deception_score = 0
 
 	@property
@@ -36,15 +33,13 @@ class AStar():
 		self.initialise_state(*args, **kwargs)
 		self.enable_bar = kwargs['enable_bar'] if 'enable_bar' in kwargs else False
 		self.size = self.puzzle.shape
-		# heapq.heapify(self.frontier)
+		heapq.heapify(self.frontier)
 		self.closed = []
 		self.optimal_plan = None
 		self.terminate_after = kwargs['terminate_after'] if 'terminate_after' in kwargs else float('inf')
-		self.frontier_snapshots = []
 	
 	def select(self):
-		# node = heapq.heappop(self.frontier)
-		node = self.frontier.pop(0)
+		node = heapq.heappop(self.frontier)
 		self.closed.append(node)
 		return node
 	
@@ -55,7 +50,6 @@ class AStar():
 			optimal_plan.append(node)
 			node = node.parent
 		self.optimal_plan = optimal_plan[::-1][1:]
-		# self.optimal_plan.pop(0)
 	
 	def populate_h(self, nodes):
 		if self.backlogged_node is not None:
@@ -68,7 +62,6 @@ class AStar():
 	def search(self):
 		self.iterations = 0
 		while len(self.frontier) > 0 and self.terminate_after > 0:
-			self.frontier_snapshots.append(self.frontier.copy())
 			self.iterations += 1
 			self.terminate_after -= 1
 			
@@ -87,10 +80,7 @@ class AStar():
 					continue
 				child.parent = node
 				node.children.append(child)
-				# heapq.heappush(self.frontier, child)
-				bisect.insort(self.frontier, child)
-			# if self.iterations % 1000 == 0:
-			# 	print(f'{self.iterations=}')
+				heapq.heappush(self.frontier, child)
 
 def get_improved_heuristic_solver(solver):
 	class ModelAStar(solver):
@@ -128,7 +118,7 @@ def get_improved_heuristic_solver(solver):
 					nodes[i].h = heuristics[i] + difference
 					self.checked_prompts[prompts.pop(0)] = difference
 			if self.backlogged_node is not None:
-				nodes.pop() # Pop so it not conisdered in the children
+				nodes.pop() # Pop so it is not conisdered in the children
 				self.backlogged_node = None
 			return nodes
 

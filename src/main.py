@@ -51,7 +51,7 @@ if __name__ == '__main__':
 	parser.add_argument('--data-dir', default = '../datasets')
 	parser.add_argument('--model-dir', default = '../models')
 	parser.add_argument('--domain', choices = ['maze', 'sokoban'], default = 'sokoban')
-	parser.add_argument('--dataset', default = 'boxoban-small', choices = ['maze-generated', 'boxoban-astar', 'boxoban-astar-dec', 'boxoban-small', 'boxoban-rand-small', 'boxoban-astar-bs', 'boxoban-length-gen','boxoban-astar-opt', 'boxoban-astar-rand', 'boxoban-astar-large', 'maze-fixed', 'maze-fixed-2', 'boxoban-fixed'])
+	parser.add_argument('--dataset', default = 'boxoban-small', choices = ['maze-generated', 'maze-small', 'boxoban-astar', 'boxoban-astar-dec', 'boxoban-small', 'boxoban-rand-small', 'boxoban-astar-bs', 'boxoban-length-gen','boxoban-astar-opt', 'boxoban-astar-rand', 'boxoban-astar-large', 'maze-fixed', 'maze-fixed-2', 'boxoban-fixed'])
 	# boxoban-length-gen - with 7k means puzzles requiring < 7k iters and without it means puzzles requires > 7k, less than 14k iterations
 	parser.add_argument('--create-data', default = '0', nargs = '+', type = int, help = 'args should be the values for arguments of create_data functions in data.utils')
 	parser.add_argument('--prompt-file', default = '../datasets/prompt.txt')
@@ -65,7 +65,8 @@ if __name__ == '__main__':
 	parser.add_argument('--test-ilr', nargs = '+', type = str, default=['test'])
 	parser.add_argument('--num-epochs', default = 30, type = int)
 	parser.add_argument('--device', choices = ['cuda', 'cpu'], default = 'cuda')
-	parser.add_argument('--sample', choices = ['random', 'deception', 'rand_dec', 'optimal', 'opt_dec10', 'rand10_opt'], default = 'deception')
+	parser.add_argument('--sampled-nodes', default = 4, type = int)
+	parser.add_argument('--sample', choices = ['random', 'deception', 'rand_dec', 'optimal', 'opt_dec', 'rand_opt'], default = 'deception')
 	parser.add_argument('--target', choices = ['', '_dec'], default = '')
 	parser.add_argument('--num-gpus', default = 1, type = int)
 	parser.add_argument('--local-rank', default = 0, type = int)

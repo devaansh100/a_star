@@ -186,7 +186,7 @@ class Runner():
                 if self.params.dataset == 'boxoban-astar' or self.params.dataset == 'maze-generated' or self.params.dataset == 'boxoban-astar-large': # generated before bug was resolved
                     swc_p.append(len(ref_alg.optimal_plan[1:])/len(alg.optimal_plan))
                 else:
-                    swc_p.append(len(ref_alg.optimal_plan)/len(alg.optimal_plan))
+                    swc_p.append(ref_alg.optimal_plan[-1].g/alg.optimal_plan[-1].g)
                 p_bar.set_postfix({'swc': round(sum(swc_p)/(i + 1), 2), 'ilr': round(sum(ilr_p)/(i + 1), 4), 'ilr_p': round(ilr_p[-1], 2), 'swc_p': round(swc_p[-1], 2)})
 
         # time_ref = self.get_astar_runtimes()
@@ -239,6 +239,7 @@ class Runner():
             preds = []
             gts = []
             get_score = lambda pred, gt: round(sum([abs(diff - gt_diff) for diff, gt_diff in zip(pred, gt)])/len(gt), 2)
+            typecast = float if self.params.domain == 'maze' else int
             for step, batch in enumerate(p_bar):
                 raw_data = batch.pop('raw')
                 batch = {k: v.to(torch.device(self.params.device)) for k, v in batch.items()}
@@ -246,12 +247,12 @@ class Runner():
                 text_outputs = model.tokenizer.batch_decode(outputs, skip_special_tokens = True)
                 diffs = extract_differences(text_outputs)
                 if self.params.target == '_dec':
-                    gt_diffs = [int(d[3] + d[4] - d[2]) for d in raw_data]
+                    gt_diffs = [round(typecast(d[3] + d[4] - d[2]), 2) for d in raw_data]
                 else:
                     if len(raw_data[0]) == 3:
-                        gt_diffs = [int(d[2] - d[1]) for d in raw_data]
+                        gt_diffs = [round(typecast(d[2] - d[1]), 2) for d in raw_data]
                     elif len(raw_data[0]) == 5:
-                        gt_diffs = [int(d[3] - d[2]) for d in raw_data]
+                        gt_diffs = [round(typecast(d[3] - d[2]), 2) for d in raw_data]
                 preds.extend(diffs)
                 gts.extend(gt_diffs)
                 disp_diffs = random.sample([(d,g) for d, g in zip(diffs, gt_diffs)], min(4, len(diffs)))
@@ -273,7 +274,7 @@ class Runner():
             print(f'Overestimated {overestimated_p}% by {overestimated_a}')
             print(f'Underestimated {underestimated_p}% by {underestimated_a}')
             print(f'Optimally predicted {optimal_p}% points')
-            print(f'Avg Diff with: {tuple((i, get_score([i] * len(gts), gts)) for i in range(11 if self.params.domain == "sokoban" else 6))}')
+            print(f'Avg Diff with: {tuple((i, get_score([i] * len(gts), gts)) for i in range(11 if self.params.domain == "sokoban" else 9))}')
             print(f'Dist: {Counter(preds)}')
             if self.best_test == avg_diff and not self.params.test:
                 self.save_model(model, epoch, 'model_best_test.pth') # NOTE: Never load from model_best_test.pth to continue training

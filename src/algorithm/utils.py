@@ -91,11 +91,17 @@ def convert_array_to_sb(puzzle, docks, boxes, player):
 def manhattan_distance(pos1, pos2):
 	return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
 
+def chebyshev_distance(pos1, pos2):
+	return max(abs(pos1[0] - pos2[0]), abs(pos1[1] - pos2[1]))
+
 def extract_differences(outputs):
 	diffs = [output.split('difference =')[-1].split('<|endoftext|>')[0] for output in outputs]
 	for i in range(len(diffs)):
 		try:
 			diffs[i] = int(diffs[i])
 		except:
-			diffs[i] = 0
+			try:
+				diffs[i] = float(diffs[i])
+			except:
+				diffs[i] = 0
 	return diffs

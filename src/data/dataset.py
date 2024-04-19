@@ -14,21 +14,21 @@ class HeuristicDataset(Dataset):
         if self.val and len(self.datapoints) > 5000:
             self.idxs = random.sample(range(len(self)), 5000)
             # print(Counter([int(self.raw_datapoints[x][2] - self.raw_datapoints[x][1]) for x in self.idxs]))
-        
-        if not self.val and params.domain == 'maze':
-            self.idxs = []
-            groups = defaultdict(list)
-            for i, (_, heuristic, optimal_cost) in enumerate(self.raw_datapoints):
-                groups[optimal_cost - heuristic - 1].append(i)
-            for v in groups.values():
-                if len(v) < 3500:
-                    self.idxs.extend(v)
-                else:
-                    self.idxs.extend(random.sample(v, 3500))
-            dist = Counter([int(self.raw_datapoints[x][2] - self.raw_datapoints[x][1]) for x in self.idxs])
-            # print(dist)
-            # print(len(self.idxs))
-            # exit()
+        # breakpoint()
+        # if not self.val and params.domain == 'maze':
+        #     self.idxs = []
+        #     groups = defaultdict(list)
+        #     for i, (_, heuristic, optimal_cost) in enumerate(self.raw_datapoints):
+        #         groups[optimal_cost - heuristic - 1].append(i)
+        #     for v in groups.values():
+        #         if len(v) < 3500:
+        #             self.idxs.extend(v)
+        #         else:
+        #             self.idxs.extend(random.sample(v, 3500))
+        #     dist = Counter([int(self.raw_datapoints[x][2] - self.raw_datapoints[x][1]) for x in self.idxs])
+        #     # print(dist)
+        #     # print(len(self.idxs))
+        #     # exit()
         # dist = Counter([int(x[2] - x[1]) for x in self.raw_datapoints]) 
         # print(dist)
         # exit()
