@@ -51,7 +51,7 @@ if __name__ == '__main__':
 	parser.add_argument('--data-dir', default = '../datasets')
 	parser.add_argument('--model-dir', default = '../models')
 	parser.add_argument('--domain', choices = ['maze', 'sokoban'], default = 'sokoban')
-	parser.add_argument('--dataset', default = 'boxoban-small', choices = ['maze-generated', 'maze-small', 'boxoban-astar', 'boxoban-astar-dec', 'boxoban-small', 'boxoban-rand-small', 'boxoban-astar-bs', 'boxoban-length-gen','boxoban-astar-opt', 'boxoban-astar-rand', 'boxoban-astar-large', 'maze-fixed', 'maze-fixed-2', 'boxoban-fixed'])
+	parser.add_argument('--dataset', default = 'boxoban-small', choices = ['maze-generated', 'maze-small', 'boxoban-astar', 'boxoban-grade', 'boxoban-astar-dec', 'boxoban-small', 'boxoban-rand-small', 'boxoban-astar-bs', 'boxoban-eval','boxoban-astar-opt', 'boxoban-astar-rand', 'boxoban-astar-large', 'maze-fixed', 'maze-fixed-2', 'boxoban-fixed'])
 	# boxoban-length-gen - with 7k means puzzles requiring < 7k iters and without it means puzzles requires > 7k, less than 14k iterations
 	parser.add_argument('--create-data', default = '0', nargs = '+', type = int, help = 'args should be the values for arguments of create_data functions in data.utils')
 	parser.add_argument('--prompt-file', default = '../datasets/prompt.txt')
@@ -67,7 +67,6 @@ if __name__ == '__main__':
 	parser.add_argument('--device', choices = ['cuda', 'cpu'], default = 'cuda')
 	parser.add_argument('--sampled-nodes', default = 4, type = int)
 	parser.add_argument('--sample', choices = ['random', 'deception', 'rand_dec', 'optimal', 'opt_dec', 'rand_opt'], default = 'deception')
-	parser.add_argument('--target', choices = ['', '_dec'], default = '')
 	parser.add_argument('--num-gpus', default = 1, type = int)
 	parser.add_argument('--local-rank', default = 0, type = int)
 	parser.add_argument('--train-files', nargs = '*', default = ['alg_mazes_5', 'alg_mazes_7', 'alg_mazes_10']) # alg_sokoban_2/alg_sokoban for sokoban
@@ -83,29 +82,29 @@ if __name__ == '__main__':
 		create_supervision(params)
 		exit()
 	
-	if params.bootstrap_data:
-		solver = get_improved_heuristic_solver(AStar_maze if params.domain == 'maze' else AStar_sokoban)
-		model = ImprovedHeuristic(model_dict[params.base_model], params.device) if 't5' not in params.base_model else T5ImprovedHeuristic(model_dict[params.base_model], params.device)
-		filename = f"{params.model_dir}/{params.domain}/{params.job}/{params.base_model}/model_best_test.pth"
-		checkpoint = torch.load(filename, map_location = torch.device(params.device))
-		model.load_state_dict(checkpoint['model'], strict = False)
-		model = model.to(params.device)
-		prompt = open(params.prompt_file).read()
-		class PickleableModelAStar(solver):
-			def __init__(self, *args, **kwargs):
-				super().__init__(*args, **kwargs)
-		solver = PickleableModelAStar
-		get_alg = lambda puzzle, **kwargs : solver(
-								puzzle, 
-								model = model, 
-								prompt = prompt, 
-								domain = params.domain, 
-								device = params.device, 
-								num_return_sequences = params.self_consistency_seqs,
-								**kwargs
-							)
-		creator_func[params.domain](params, *params.bootstrap_data, solver = get_alg)
-		create_supervision(params, solver = get_alg)
-		exit()
+	# if params.bootstrap_data:
+	# 	solver = get_improved_heuristic_solver(AStar_maze if params.domain == 'maze' else AStar_sokoban)
+	# 	model = ImprovedHeuristic(model_dict[params.base_model], params.device) if 't5' not in params.base_model else T5ImprovedHeuristic(model_dict[params.base_model], params.device)
+	# 	filename = f"{params.model_dir}/{params.domain}/{params.job}/{params.base_model}/model_best_test.pth"
+	# 	checkpoint = torch.load(filename, map_location = torch.device(params.device))
+	# 	model.load_state_dict(checkpoint['model'], strict = False)
+	# 	model = model.to(params.device)
+	# 	prompt = open(params.prompt_file).read()
+	# 	class PickleableModelAStar(solver):
+	# 		def __init__(self, *args, **kwargs):
+	# 			super().__init__(*args, **kwargs)
+	# 	solver = PickleableModelAStar
+	# 	get_alg = lambda puzzle, **kwargs : solver(
+	# 							puzzle, 
+	# 							model = model, 
+	# 							prompt = prompt, 
+	# 							domain = params.domain, 
+	# 							device = params.device, 
+	# 							num_return_sequences = params.self_consistency_seqs,
+	# 							**kwargs
+	# 						)
+	# 	creator_func[params.domain](params, *params.bootstrap_data, solver = get_alg)
+	# 	create_supervision(params, solver = get_alg)
+	# 	exit()
 	
 	main(params)

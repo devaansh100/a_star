@@ -232,11 +232,20 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 			print(f'{split}: {len(astar)}')
 			path = f'{params.data_dir}/{params.dataset}/{split}/'
 			os.makedirs(path, exist_ok = True)
-			with open(path + f'sokoban_{subsample}.txt', 'w') as f:
-				f.write(';'.join(astar))
+			
+			if split == 'train':
+				for i in range(1, 1 + len(astar) // 1000):
+					with open(path + f'sokoban_{subsample}_{i * 1000}.txt', 'w') as f:
+						f.write(';'.join(astar[(i - 1) * 1000 : i * 1000]))
 
-			with open(path + f'alg_sokoban_{subsample}.pkl', 'wb') as f:
-				pkl.dump(algs, f)
+					with open(path + f'alg_sokoban_{subsample}_{i * 1000}.pkl', 'wb') as f:
+						pkl.dump(algs[(i - 1) * 1000 : i * 1000], f)
+			else:
+				with open(path + f'sokoban_{subsample}.txt', 'w') as f:
+					f.write(';'.join(astar))
+
+				with open(path + f'alg_sokoban_{subsample}.pkl', 'wb') as f:
+					pkl.dump(algs, f)
 
 # def create_supervision(params, solver = None):
 # 	solver = AStar_sokoban if params.domain == 'sokoban' else AStar_maze if solver is None else solver
@@ -381,15 +390,15 @@ def create_supervision(params, solver = None):
 							num_chosen -= 1
 							iters = 0
 					iters += 1
+			sample = params.sample
 			if params.sample == 'rand_opt':
 				sample = f'rand{params.sampled_nodes}_opt'
 			elif params.sample == 'opt_dec':
 				sample = f'opt_dec{params.sampled_nodes}'
-			alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{sample}{params.target}.pkl')
+			alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{sample}.pkl')
 			with open(f'{path}/{split}/supervised_{alg_file}', 'wb') as f:
 				pkl.dump(dataset, f)
 			print(f'Created {len(dataset)}')
-
 
 def tokenize_data(params, datapoints, tokenizer, filename):
 	legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
@@ -399,13 +408,11 @@ def tokenize_data(params, datapoints, tokenizer, filename):
 	for datapoint in tqdm(datapoints, desc = filename):
 		if len(datapoint) == 3:
 			puzzle_str, heuristic, optimal_cost = datapoint
-			initial_str, deception_score = '', 0
 		elif len(datapoint) == 5:
 			initial_str, puzzle_str, heuristic, optimal_cost, deception_score = datapoint
-			if params.target == '':
-				initial_str, deception_score = '', 0
+		initial_str, deception_score = '', 0
 		# optimal_cost is actually counting one extra step, since start and goal are in the plan for maze. In sokoban, you don't end at the goal
-		difference = optimal_cost + deception_score - heuristic
+		difference = optimal_cost - heuristic
 		input_prompt = prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(int(heuristic))).replace('{initial_str}', initial_str)
 		input_prompt = input_prompt.replace('{puzzle_legend}', legend[params.domain]).replace('{domain}', params.domain)
 		input_ids = tokenizer(input_prompt).input_ids

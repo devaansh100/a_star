@@ -246,13 +246,10 @@ class Runner():
                 outputs = model.model.generate(**batch, do_sample = True, top_k = 5, num_beams = 1, max_new_tokens = 5, pad_token_id=model.tokenizer.eos_token_id)
                 text_outputs = model.tokenizer.batch_decode(outputs, skip_special_tokens = True)
                 diffs = extract_differences(text_outputs)
-                if self.params.target == '_dec':
-                    gt_diffs = [round(typecast(d[3] + d[4] - d[2]), 2) for d in raw_data]
-                else:
-                    if len(raw_data[0]) == 3:
-                        gt_diffs = [round(typecast(d[2] - d[1]), 2) for d in raw_data]
-                    elif len(raw_data[0]) == 5:
-                        gt_diffs = [round(typecast(d[3] - d[2]), 2) for d in raw_data]
+                if len(raw_data[0]) == 3:
+                    gt_diffs = [round(typecast(d[2] - d[1]), 2) for d in raw_data]
+                elif len(raw_data[0]) == 5:
+                    gt_diffs = [round(typecast(d[3] - d[2]), 2) for d in raw_data]
                 preds.extend(diffs)
                 gts.extend(gt_diffs)
                 disp_diffs = random.sample([(d,g) for d, g in zip(diffs, gt_diffs)], min(4, len(diffs)))
