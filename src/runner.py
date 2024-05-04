@@ -10,7 +10,6 @@ import random
 from collections import Counter
 # from algorithm.utils import extract_differences
 import pickle as pkl
-from ddp import *
 import time
 import os
 
@@ -21,13 +20,11 @@ class Runner():
         self.params = params
         self.test_puzzles = test_puzzles
         self.model_dir = params.model_dir + '/' + params.domain + '/' + params.job + '/' + params.base_model
+        self.model_suffix = ''
         if params.loss == 'l2':
-            self.model_suffix = f'_l2_{params.num_heads}'
-        else:
-            if params.gb:
-                self.model_suffix = '_gb'
-            else:
-                self.model_suffix = ''
+            self.model_suffix += f'_l2_{params.num_heads}'
+        if params.gb:
+            self.model_suffix += '_gb'
         
         self.prompt = open(params.prompt_file).read()
         legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
@@ -72,15 +69,9 @@ class Runner():
             outputs = model(batch)
             loss = outputs[0]
             if torch.isnan(loss):
-                if is_main_process():
-                    print('NaN loss encountered. Training further not useful. Try testing model_best_test.pth')
+                print('NaN loss encountered. Training further not useful. Try testing model_best_test.pth')
                 exit()
-            if self.params.num_gpus > 1:
-                loss_collated = [torch.zeros_like(loss).cuda() for _ in range(params.num_gpus)]
-                dist.all_gather(loss_collated, loss)
-                total_loss += sum(loss_collated).item()
-            else:
-                total_loss += loss.item()
+            total_loss += loss.item()
             p_bar.set_postfix({'loss': loss.item()})
             loss.backward()
             if (step + 1) % self.params.grad_step == 0 or (step + 1) == len(self.train_dl):
@@ -91,8 +82,7 @@ class Runner():
                 self.test(model, epoch)
                 model.train()
         train_loss = round(total_loss / len(self.train_dl), 4)
-        if is_main_process():
-            print(f'Train Loss: {train_loss}')
+        print(f'Train Loss: {train_loss}')
     
     def prepare_model_for_astar(self, model, prompt): # NOTE: DO NOT USE KV_CACHE FOR BATCHED OUTPUTS
         if self.params.device == 'cuda':
@@ -176,7 +166,6 @@ class Runner():
         return ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, itr, itr_optimal
 
     def test_ilr(self, model):
-        assert self.params.num_gpus == 1, 'Only 1 GPU for ILR right now'
         algs, ilr_p, swc_p = [], [], []
         time_p, time_ref = [], []
         bootstrapped_plans, ref_bs_idxs = [], []
@@ -269,22 +258,13 @@ class Runner():
             for step, batch in enumerate(p_bar):
                 raw_data = batch.pop('raw')
                 batch = {k: v.to(torch.device(self.params.device)) for k, v in batch.items()}
-                # outputs = model.model.generate(**batch, do_sample = True, top_k = 5, num_beams = 1, max_new_tokens = 5, pad_token_id=model.tokenizer.eos_token_id)
-                # text_outputs = model.tokenizer.batch_decode(outputs, skip_special_tokens = True)
-                # diffs = extract_differences(text_outputs)
                 diffs = model.generate(**batch)
                 if len(self.params.create_gb_data):
                     for i in range(len(raw_data)):
                         updated_point = list(raw_data[i])
-                        if len(updated_point) == 3:
-                            updated_point[1] = (updated_point[1], diffs[i])
-                        elif len(updated_point) == 5:
-                            updated_point[2] = (updated_point[2], diffs[i])
+                        updated_point[2] = (updated_point[2], diffs[i])
                         new_raw_data.append(tuple(updated_point))
-                if len(raw_data[0]) == 3:
-                    gt_diffs = [int(d[2] - d[1]) for d in raw_data]
-                elif len(raw_data[0]) == 5:
-                    gt_diffs = [int(d[3] - d[2]) for d in raw_data]
+                gt_diffs = [int(d[3] - d[2]) for d in raw_data]
                 preds.extend(diffs)
                 gts.extend(gt_diffs)
                 disp_diffs = random.sample([(d,g) for d, g in zip(diffs, gt_diffs)], min(4, len(diffs)))
@@ -295,26 +275,17 @@ class Runner():
                 with open(file, 'wb') as f:
                     pkl.dump(new_raw_data, f)
 
-        if self.params.num_gpus > 1:
-            preds_collated = [None for _ in range(params.num_gpus)]
-            dist.all_gather_object(preds_collated, preds)
-
-            gts_collated = [None for _ in range(params.num_gpus)]
-            dist.all_gather_object(gts_collated, gts)
-        else:
-            preds_collated, gts_collated = preds, gts
-        avg_diff, overestimated_p, overestimated_a, underestimated_p, underestimated_a, optimal_p = self.get_metrics(preds_collated, gts_collated)
+        avg_diff, overestimated_p, overestimated_a, underestimated_p, underestimated_a, optimal_p = self.get_metrics(preds, gts)
         self.best_test = min(avg_diff, self.best_test)
-        if is_main_process():
-            print(f'Epoch {epoch}:')
-            print(f'Average Diff from GT: {avg_diff}')
-            print(f'Overestimated {overestimated_p}% by {overestimated_a}')
-            print(f'Underestimated {underestimated_p}% by {underestimated_a}')
-            print(f'Optimally predicted {optimal_p}% points')
-            print(f'Avg Diff with: {tuple((i, get_score([i] * len(gts), gts)) for i in range(11 if self.params.domain == "sokoban" else 9))}')
-            # print(f'Dist: {Counter(preds)}')
-            if self.best_test == avg_diff and not self.params.test:
-                self.save_model(model, epoch, f'model_best_test{self.model_suffix}.pth') # NOTE: Never load from model_best_test.pth to continue training
+        print(f'Epoch {epoch}:')
+        print(f'Average Diff from GT: {avg_diff}')
+        print(f'Overestimated {overestimated_p}% by {overestimated_a}')
+        print(f'Underestimated {underestimated_p}% by {underestimated_a}')
+        print(f'Optimally predicted {optimal_p}% points')
+        print(f'Avg Diff with: {tuple((i, get_score([i] * len(gts), gts)) for i in range(11 if self.params.domain == "sokoban" else 9))}')
+        # print(f'Dist: {Counter(preds)}')
+        if self.best_test == avg_diff and not self.params.test:
+            self.save_model(model, epoch, f'model_best_test{self.model_suffix}.pth') # NOTE: Never load from model_best_test.pth to continue training
     
     
     def train(self, model):
@@ -357,12 +328,8 @@ class Runner():
             self.lr_scheduler.step()
 
         for epoch in range(last_epoch, self.params.num_epochs - 1):
-            if self.params.num_gpus > 1:
-                self.train_dl.sampler.set_epoch(epoch)
-                self.test_dl.sampler.set_epoch(epoch)
             self.fit_one_epoch(model, epoch + 1)
-            if is_main_process():
-                self.save_model(model, epoch + 1, f'model_latest{self.model_suffix}.pth')
+            self.save_model(model, epoch + 1, f'model_latest{self.model_suffix}.pth')
             self.test(model, epoch + 1)
 
 

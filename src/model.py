@@ -63,27 +63,12 @@ class ImprovedHeuristic(nn.Module):
 class T5ImprovedHeuristic(nn.Module):
 	def __init__(self, params, base_model, device):
 		super(T5ImprovedHeuristic, self).__init__()
-		if 'scratch' in base_model:
-			base_model = base_model[-1]
-			config = AutoConfig.from_pretrained(base_model)
-			config._name_or_path = ''
-			config.num_layers = 2
-			config.num_decoder_layers = 2
-			config.d_ff = 768
-			config.d_model = 256
-			model = AutoModelForSeq2SeqLM.from_config(config)
-			init_model = AutoModelForSeq2SeqLM.from_pretrained(base_model, trust_remote_code=True)
-			# model.lm_head.weight = nn.Parameter(init_model.lm_head.weight.clone())
-			# model.shared.weight = nn.Parameter(init_model.shared.weight.clone())
-			del init_model
-			print_trainable_parameters(model)
-		else:
-			if params.loss == 'ce':
-				model = AutoModelForSeq2SeqLM.from_pretrained(base_model, trust_remote_code=True)
-			elif params.loss == 'l2':
-				model = T5EncoderModel.from_pretrained(base_model)
-				self.ffns = nn.ParameterList([nn.Linear(model.config.d_model, 1) for _ in range(params.num_heads)])
-				self.l2_loss = nn.MSELoss()
+		if params.loss == 'ce':
+			model = AutoModelForSeq2SeqLM.from_pretrained(base_model, trust_remote_code=True)
+		elif params.loss == 'l2':
+			model = T5EncoderModel.from_pretrained(base_model)
+			self.ffns = nn.ParameterList([nn.Linear(model.config.d_model, 1) for _ in range(params.num_heads)])
+			self.l2_loss = nn.MSELoss()
 		self.tokenizer = AutoTokenizer.from_pretrained(base_model)
 		self.inference_tokenizer = self.tokenizer
 		self.model = model

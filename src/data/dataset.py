@@ -82,11 +82,8 @@ class T5HeuristicDataset(HeuristicDataset):
             if self.params.loss == 'ce':
                 out.append(torch.tensor(labels).long())
             elif self.params.loss == 'l2':
-                _, _, heuristic, optimal_cost, deception_score = self.raw_datapoints[idx]
-                if self.params.target == 'dec':
-                    out.append(torch.tensor([deception_score]).float())
-                else:
-                    out.append(torch.tensor([optimal_cost - heuristic]).float())
+                _, _, heuristic, optimal_cost = self.raw_datapoints[idx]
+                out.append(torch.tensor([optimal_cost - heuristic]).float())
         input_ids = torch.tensor(input_ids).long()
         out.append(input_ids)
         out.append(self.raw_datapoints[idx])
