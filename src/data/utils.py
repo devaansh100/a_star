@@ -114,7 +114,6 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 					if alg.iterations > min_iterations:
 						puzzle = convert_array_to_sb(alg.puzzle, alg.docks, alg.initial_boxes, alg.initial_pos)
 						astar.append(puzzle)
-						annotate_deceptive_nodes(alg)
 						algs.append(alg)
 						p_bar.n += 1
 						p_bar.refresh()
@@ -211,29 +210,17 @@ def tokenize_data(params, datapoints, tokenizer, filename):
 	with open(params.prompt_file) as f:
 		prompt = f.read()
 	for datapoint in tqdm(datapoints, desc = filename):
-		if len(datapoint) == 3:
-			puzzle_str, heuristic, optimal_cost = datapoint
-		elif len(datapoint) == 5:
-			initial_str, puzzle_str, heuristic, optimal_cost, deception_score = datapoint
+		initial_str, puzzle_str, heuristic, optimal_cost = datapoint
+		pred_diff = None
 		if isinstance(heuristic, tuple):
 			heuristic, pred_diff = heuristic
-		else:
-			pred_diff = None
-		# initial_str, deception_score = '', 0
-		# optimal_cost is actually counting one extra step, since start and goal are in the plan for maze. In sokoban, you don't end at the goal
-		if params.target == 'dec':
-			difference = deception_score
-		else:
-			difference = optimal_cost - heuristic
+		difference = optimal_cost - heuristic
 		input_prompt = prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(int(heuristic))).replace('{initial_str}', initial_str)
 		input_prompt = input_prompt.replace('{puzzle_legend}', legend[params.domain]).replace('{domain}', params.domain)
 		input_ids = tokenizer(input_prompt).input_ids
-		if isinstance(difference, int):
-			label_str = f'{int(difference)}'
-		else:
-			label_str = f'{round(difference, 2)}'
+		label_str = str(int(difference)) if isinstance(difference, int) else str(round(difference, 2))
 		if pred_diff is not None:
-			label_str = f'{int(pred_diff)}, error = {optimal_cost - heuristic - pred_diff}'
+			label_str = f'{int(pred_diff)}, {optimal_cost - heuristic - pred_diff}'
 		labels = tokenizer(label_str, add_special_tokens = 't5' in params.base_model).input_ids
 		decoder_input_ids = None
 		# if error is None:
@@ -269,20 +256,15 @@ def read_data(params, tokenizer):
 				datapoints = pkl.load(f)
 				data[split]['raw'].extend(datapoints)
 			
-			if params.target == 'dec':
-				tokenized_file = f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}/tokenized_{file}_dec.pkl"
-			else:
-				tokenized_file = f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}/tokenized_{file}.pkl"
+			tokenized_file = f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}/tokenized_{file}_{params.prompt_file.replace('.txt', '')}.pkl"
 			if os.path.exists(tokenized_file):
 				with open(tokenized_file, 'rb') as f:
 					tokenized_data = pkl.load(f)
 			else:
 				os.makedirs(f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}", exist_ok = True)
 				tokenized_data = tokenize_data(params, datapoints, tokenizer, tokenized_file)
-			data[split]['tokenized'][0].extend(tokenized_data[0])
-			data[split]['tokenized'][1].extend(tokenized_data[1])
-			if len(tokenized_data) == 3:
-				data[split]['tokenized'][2].extend(tokenized_data[2])
+			for i in range(len(tokenized_data)):
+				data[split]['tokenized'][i].extend(tokenized_data[i])
 		if len(data[split]['tokenized'][-1]) == 0:
 			data[split]['tokenized'] = data[split]['tokenized'][:-1]
 	

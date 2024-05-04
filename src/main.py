@@ -20,27 +20,28 @@ def init_seed(seed):
 
 def main(params):
 	os.environ['TOKENIZERS_PARALLELISM'] = "false"
-	model = ImprovedHeuristic(params, model_dict[params.base_model], params.device) if 't5' not in params.base_model else T5ImprovedHeuristic(params, model_dict[params.base_model], params.device)
+	MODEL, DATASET = T5ImprovedHeuristic, T5HeuristicDataset if 't5' not in params.base_model else ImprovedHeuristic, HeuristicDataset
+	model = MODEL(params, model_dict[params.base_model], params.device)
 	data = read_data(params, model.tokenizer)
-	train_dataset = HeuristicDataset(params, data['train']['tokenized'], data['train']['raw'], model.tokenizer) if 't5' not in params.base_model else T5HeuristicDataset(params, data['train']['tokenized'], data['train']['raw'], model.tokenizer)
-	val_dataset = HeuristicDataset(params, data['val']['tokenized'], data['val']['raw'], model.tokenizer, val = True) if 't5' not in params.base_model else T5HeuristicDataset(params, data['val']['tokenized'], data['val']['raw'], model.tokenizer, val = True)
+	train_dataset = DATASET(params, data['train']['tokenized'], data['train']['raw'], model.tokenizer)
+	val_dataset = DATASET(params, data['val']['tokenized'], data['val']['raw'], model.tokenizer, val = True)
 	train_dl = DataLoader(train_dataset, batch_size = params.batch_size, num_workers = 4, pin_memory = params.device == 'cuda', shuffle = True, collate_fn = train_dataset.collate_fn_train)
-	val_dl = DataLoader(val_dataset, batch_size = params.batch_size, num_workers = 4, pin_memory = params.device == 'cuda', shuffle = False, collate_fn = train_dataset.collate_fn_test)
+	val_dl = DataLoader(val_dataset, batch_size = params.batch_size, num_workers = 4, pin_memory = params.device == 'cuda', shuffle = False, collate_fn = val_dataset.collate_fn_test)
 	if len(params.create_gb_data):
 		train_dataset.val = True
 		val_dl = DataLoader(train_dataset, batch_size = params.batch_size, num_workers = 4, pin_memory = params.device == 'cuda', shuffle = False, collate_fn = train_dataset.collate_fn_test)
-		assert params.test, "Only use --create-gb-data in the test loop"
+		assert params.test or len(params.test_ilr) > 1, "Only use --create-gb-data in the test loops"
 	runner = Runner(params, train_dl, val_dl, data['test'])
 	runner.train(model)
 
 if __name__ == '__main__':
 	init_seed(43)
 	parser = argparse.ArgumentParser()
-	parser.add_argument('--job', default = 'fixed_data') # testing
+	parser.add_argument('--job', required=True)
 	parser.add_argument('--data-dir', default = '../datasets')
 	parser.add_argument('--model-dir', default = '../models')
 	parser.add_argument('--domain', choices = ['maze', 'sokoban'], default = 'sokoban')
-	parser.add_argument('--dataset', default = 'boxoban-small', choices = ['maze-grade', 'maze-eval', 'maze-large', 'maze-small', 'boxoban-astar', 'boxoban-grade', 'boxoban-astar-dec', 'boxoban-small', 'boxoban-rand-small', 'boxoban-astar-bs', 'boxoban-eval','boxoban-astar-opt', 'boxoban-astar-rand', 'boxoban-astar-large', 'maze-fixed', 'maze-fixed-2', 'boxoban-fixed'])
+	parser.add_argument('--dataset', default = 'boxoban-small', choices = ['maze-grade', 'maze-eval', 'maze-large', 'boxoban-grade', 'boxoban-eval', 'boxoban-large'])
 	parser.add_argument('--create-data', default = '0', nargs = '+', type = int, help = 'args should be the values for arguments of create_data functions in data.utils')
 	parser.add_argument('--prompt-file', default = '../datasets/prompt.txt')
 	parser.add_argument('--grad-step', default = 1, type = int)
@@ -51,7 +52,6 @@ if __name__ == '__main__':
 	parser.add_argument('--lm', dest = 'load_model', default = '', type = str)
 	parser.add_argument('--test', action = 'store_true')
 	parser.add_argument('--rt', dest = 'refresh_training', action = 'store_true')
-	parser.add_argument('--save-to-bs', dest='save_to_bootstrap', type = str, default = '')
 	parser.add_argument('--create-gb-data', type = str, default = '')
 	parser.add_argument('--gb', action = 'store_true')
 	parser.add_argument('--test-ilr', nargs = '+', type = str, default=['test'])

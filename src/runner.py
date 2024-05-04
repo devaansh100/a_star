@@ -184,10 +184,7 @@ class Runner():
                 time_p.append((end - start) * 1000)
                 algs.append(alg)
                 ilr_p.append(len(ref_alg.closed)/len(alg.closed))
-                if self.params.dataset == 'boxoban-astar' or self.params.dataset == 'maze-generated' or self.params.dataset == 'boxoban-astar-large': # generated before bug was resolved
-                    swc_p.append(len(ref_alg.optimal_plan[1:])/len(alg.optimal_plan))
-                else:
-                    swc_p.append(ref_alg.optimal_plan[-1].g/alg.optimal_plan[-1].g)
+                swc_p.append(ref_alg.optimal_plan[-1].g/alg.optimal_plan[-1].g)
                 if ilr_p[-1] > 1 and swc_p[-1] == 1:
                     ref_alg.optimal_plan = alg.optimal_plan
                     bootstrapped_plans.append(ref_alg)
@@ -196,12 +193,12 @@ class Runner():
                     ref_bs_idxs.append(i)
                 p_bar.set_postfix({'swc': round(sum(swc_p)/(i + 1), 2), 'ilr': round(sum(ilr_p)/(i + 1), 4), 'ilr_p': round(ilr_p[-1], 2), 'swc_p': round(swc_p[-1], 2)})
 
-        if len(self.params.save_to_bootstrap) > 0:
+        if len(self.params.create_gb_data) > 0:
             for idx in ref_bs_idxs:
                 bootstrapped_plans[idx][0].populate_h(bootstrapped_plans[idx][1].optimal_plan)
                 bootstrapped_plans[idx] = bootstrapped_plans[idx][1]
             
-            with open(os.path.join(self.params.data_dir, self.params.dataset, self.params.test_ilr[0], 'alg_' + self.params.test_ilr[1] + f'_{self.params.save_to_bootstrap}.pkl'), 'wb') as f:
+            with open(os.path.join(self.params.data_dir, self.params.dataset, self.params.test_ilr[0], 'alg_' + self.params.test_ilr[1] + f'_{self.params.create_gb_data}.pkl'), 'wb') as f:
                 pkl.dump(bootstrapped_plans, f)
 
         # time_ref = self.get_astar_runtimes()
