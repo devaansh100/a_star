@@ -94,14 +94,22 @@ def manhattan_distance(pos1, pos2):
 def chebyshev_distance(pos1, pos2):
 	return max(abs(pos1[0] - pos2[0]), abs(pos1[1] - pos2[1]))
 
-def extract_differences(outputs):
-	diffs = [output.split('difference =')[-1].split('<|endoftext|>')[0] for output in outputs]
+def extract_differences(diffs):
+	# diffs = [output.split('difference =')[-1].split('<|endoftext|>')[0] for output in outputs] # NOTE: Only useful for decoder-only models
 	for i in range(len(diffs)):
 		try:
 			diffs[i] = int(diffs[i])
 		except:
+			vals = diffs[i].split(',')
 			try:
-				diffs[i] = float(diffs[i])
+				if len(vals) > 1:
+					vals[1] = vals[1].split('=')[-1]
 			except:
-				diffs[i] = 0
+				vals[1] = '0'
+			for j in range(len(vals)):
+				try:
+					vals[j] = int(vals[j])
+				except:
+					vals[j] = 0
+			diffs[i] = sum(vals)
 	return diffs

@@ -8,10 +8,11 @@ import os
 from torch.cuda.amp import GradScaler
 import random
 from collections import Counter
-from algorithm.utils import extract_differences
+# from algorithm.utils import extract_differences
 import pickle as pkl
 from ddp import *
 import time
+import os
 
 class Runner():
     def __init__(self, params, train_dl, test_dl, test_puzzles):
@@ -20,10 +21,17 @@ class Runner():
         self.params = params
         self.test_puzzles = test_puzzles
         self.model_dir = params.model_dir + '/' + params.domain + '/' + params.job + '/' + params.base_model
+        if params.loss == 'l2':
+            self.model_suffix = f'_l2_{params.num_heads}'
+        else:
+            if params.gb:
+                self.model_suffix = '_gb'
+            else:
+                self.model_suffix = ''
         
         self.prompt = open(params.prompt_file).read()
-        # legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
-        # self.prompt = self.prompt.replace('{puzzle_legend}', legend[self.params.domain]).replace('{domain}', self.params.domain)
+        legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
+        self.prompt = self.prompt.replace('{puzzle_legend}', legend[self.params.domain]).replace('{domain}', self.params.domain)
 
         self.best_test = float('inf')
         if not params.test:
@@ -46,6 +54,9 @@ class Runner():
         print(f'Loading from {self.model_dir}/{filename}')
         checkpoint = torch.load(self.model_dir + '/' + filename, map_location = torch.device(self.params.device))
         model.load_state_dict(checkpoint['model'], strict = False)
+        # for name, param in model.named_parameters():
+        #     if name in checkpoint['model']:
+        #         param.requires_grad = False
         # self.best_test = checkpoint['best_test']
         if load_opt:
             self.optimizer.load_state_dict(checkpoint['optimizer'])
@@ -59,7 +70,7 @@ class Runner():
             raw_data = batch.pop('raw')
             batch = {k: v.to(torch.device(self.params.device)) for k, v in batch.items()}
             outputs = model(batch)
-            loss = outputs.loss
+            loss = outputs[0]
             if torch.isnan(loss):
                 if is_main_process():
                     print('NaN loss encountered. Training further not useful. Try testing model_best_test.pth')
@@ -168,6 +179,7 @@ class Runner():
         assert self.params.num_gpus == 1, 'Only 1 GPU for ILR right now'
         algs, ilr_p, swc_p = [], [], []
         time_p, time_ref = [], []
+        bootstrapped_plans, ref_bs_idxs = [], []
         solver = get_improved_heuristic_solver(AStar_maze if self.params.domain == 'maze' else AStar_sokoban)
         # solver = get_random_heuristic_solver(AStar_maze if self.params.domain == 'maze' else AStar_sokoban)
         with torch.no_grad():
@@ -175,7 +187,7 @@ class Runner():
             # model, kv_cache, prompt = self.prepare_model_for_astar(model, self.prompt)
             p_bar = tqdm(zip(self.test_puzzles['raw'], self.test_puzzles['alg']),  total = len(self.test_puzzles['raw']))
             for i, (puzzle, ref_alg) in enumerate(p_bar):
-                alg = solver(puzzle, model = model, prompt = self.prompt, domain = self.params.domain, device = self.params.device, num_return_sequences = self.params.self_consistency_seqs)
+                alg = solver(puzzle, model = model, target = self.params.target, prompt = self.prompt, domain = self.params.domain, device = self.params.device)
                 # alg = solver(puzzle, domain = self.params.domain, strategy = 'uniform')
                 start = time.time()
                 alg.search()
@@ -187,7 +199,21 @@ class Runner():
                     swc_p.append(len(ref_alg.optimal_plan[1:])/len(alg.optimal_plan))
                 else:
                     swc_p.append(ref_alg.optimal_plan[-1].g/alg.optimal_plan[-1].g)
+                if ilr_p[-1] > 1 and swc_p[-1] == 1:
+                    ref_alg.optimal_plan = alg.optimal_plan
+                    bootstrapped_plans.append(ref_alg)
+                else:
+                    bootstrapped_plans.append((alg, ref_alg))
+                    ref_bs_idxs.append(i)
                 p_bar.set_postfix({'swc': round(sum(swc_p)/(i + 1), 2), 'ilr': round(sum(ilr_p)/(i + 1), 4), 'ilr_p': round(ilr_p[-1], 2), 'swc_p': round(swc_p[-1], 2)})
+
+        if len(self.params.save_to_bootstrap) > 0:
+            for idx in ref_bs_idxs:
+                bootstrapped_plans[idx][0].populate_h(bootstrapped_plans[idx][1].optimal_plan)
+                bootstrapped_plans[idx] = bootstrapped_plans[idx][1]
+            
+            with open(os.path.join(self.params.data_dir, self.params.dataset, self.params.test_ilr[0], 'alg_' + self.params.test_ilr[1] + f'_{self.params.save_to_bootstrap}.pkl'), 'wb') as f:
+                pkl.dump(bootstrapped_plans, f)
 
         # time_ref = self.get_astar_runtimes()
         time_ref = [0] * len(time_p)
@@ -233,28 +259,42 @@ class Runner():
         return avg_diff, overestimated_p, overestimated_a, underestimated_p, underestimated_a, optimal_p
     
     def test(self, model, epoch):
+        new_raw_data = []
         model.eval()
         with torch.no_grad():
             p_bar = tqdm(self.val_dl, desc = f'Val {epoch}')
             preds = []
             gts = []
             get_score = lambda pred, gt: round(sum([abs(diff - gt_diff) for diff, gt_diff in zip(pred, gt)])/len(gt), 2)
-            typecast = float if self.params.domain == 'maze' else int
             for step, batch in enumerate(p_bar):
                 raw_data = batch.pop('raw')
                 batch = {k: v.to(torch.device(self.params.device)) for k, v in batch.items()}
-                outputs = model.model.generate(**batch, do_sample = True, top_k = 5, num_beams = 1, max_new_tokens = 5, pad_token_id=model.tokenizer.eos_token_id)
-                text_outputs = model.tokenizer.batch_decode(outputs, skip_special_tokens = True)
-                diffs = extract_differences(text_outputs)
+                # outputs = model.model.generate(**batch, do_sample = True, top_k = 5, num_beams = 1, max_new_tokens = 5, pad_token_id=model.tokenizer.eos_token_id)
+                # text_outputs = model.tokenizer.batch_decode(outputs, skip_special_tokens = True)
+                # diffs = extract_differences(text_outputs)
+                diffs = model.generate(**batch)
+                if len(self.params.create_gb_data):
+                    for i in range(len(raw_data)):
+                        updated_point = list(raw_data[i])
+                        if len(updated_point) == 3:
+                            updated_point[1] = (updated_point[1], diffs[i])
+                        elif len(updated_point) == 5:
+                            updated_point[2] = (updated_point[2], diffs[i])
+                        new_raw_data.append(tuple(updated_point))
                 if len(raw_data[0]) == 3:
-                    gt_diffs = [round(typecast(d[2] - d[1]), 2) for d in raw_data]
+                    gt_diffs = [int(d[2] - d[1]) for d in raw_data]
                 elif len(raw_data[0]) == 5:
-                    gt_diffs = [round(typecast(d[3] - d[2]), 2) for d in raw_data]
+                    gt_diffs = [int(d[3] - d[2]) for d in raw_data]
                 preds.extend(diffs)
                 gts.extend(gt_diffs)
                 disp_diffs = random.sample([(d,g) for d, g in zip(diffs, gt_diffs)], min(4, len(diffs)))
                 p_bar.set_postfix({'diffs': disp_diffs})
         
+            if len(self.params.create_gb_data):
+                file = os.path.join(self.params.data_dir, self.params.dataset, 'train', f'supervised_{self.params.train_files[0]}_{self.params.create_gb_data}.pkl')
+                with open(file, 'wb') as f:
+                    pkl.dump(new_raw_data, f)
+
         if self.params.num_gpus > 1:
             preds_collated = [None for _ in range(params.num_gpus)]
             dist.all_gather_object(preds_collated, preds)
@@ -272,9 +312,9 @@ class Runner():
             print(f'Underestimated {underestimated_p}% by {underestimated_a}')
             print(f'Optimally predicted {optimal_p}% points')
             print(f'Avg Diff with: {tuple((i, get_score([i] * len(gts), gts)) for i in range(11 if self.params.domain == "sokoban" else 9))}')
-            print(f'Dist: {Counter(preds)}')
+            # print(f'Dist: {Counter(preds)}')
             if self.best_test == avg_diff and not self.params.test:
-                self.save_model(model, epoch, 'model_best_test.pth') # NOTE: Never load from model_best_test.pth to continue training
+                self.save_model(model, epoch, f'model_best_test{self.model_suffix}.pth') # NOTE: Never load from model_best_test.pth to continue training
     
     
     def train(self, model):
@@ -287,7 +327,9 @@ class Runner():
 
 
         if len(self.params.load_model):
-            model, last_epoch = self.load_model(model, self.params.load_model, load_opt = not (self.params.test or self.params.test_ilr))
+            model, last_epoch = self.load_model(model, self.params.load_model, load_opt = not (self.params.test or self.params.test_ilr or self.params.refresh_training))
+            if self.params.refresh_training:
+                last_epoch = -1
         
         if self.params.test:
             self.test(model, last_epoch)
@@ -320,7 +362,7 @@ class Runner():
                 self.test_dl.sampler.set_epoch(epoch)
             self.fit_one_epoch(model, epoch + 1)
             if is_main_process():
-                self.save_model(model, epoch + 1, 'model_latest.pth')
+                self.save_model(model, epoch + 1, f'model_latest{self.model_suffix}.pth')
             self.test(model, epoch + 1)
 
 

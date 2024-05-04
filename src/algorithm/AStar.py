@@ -91,7 +91,7 @@ def get_improved_heuristic_solver(solver):
 			# self.kv_cache = kwargs['kv_cache']
 			self.device = kwargs['device']
 			self.checked_prompts = {}
-			self.num_return_sequences = kwargs['num_return_sequences']
+			self.target = kwargs['target']
 			super().__init__(*args, **kwargs)
 		
 		def populate_h(self, nodes):
@@ -111,20 +111,20 @@ def get_improved_heuristic_solver(solver):
 					prev_checked.add(i)
 					nodes[i].h = heuristics[-1] + self.checked_prompts[prompt]
 			
-			differences = self.get_difference(prompts)
+			differences = self.model.get_difference(prompts)
 			for i in range(len(nodes)):
 				if i not in prev_checked:
 					difference = differences.pop(0)
-					nodes[i].h = heuristics[i] + difference
+					nodes[i].h = difference if self.target == 'dec' else heuristics[i] + difference
 					self.checked_prompts[prompts.pop(0)] = difference
 			if self.backlogged_node is not None:
-				nodes.pop() # Pop so it is not conisdered in the children
+				nodes.pop() # Pop so it is not considered in the children
 				self.backlogged_node = None
 			return nodes
 
 		def create_prompt(self, *args):
 			if self.domain == 'maze':
-				puzzle_str = convert_array_to_maze(self.puzzle, args[0], self.goal)
+				puzzle_str = convert_array_to_maze(self.puzzle, args[0:2], self.goal)
 			else:
 				puzzle_str = convert_array_to_sb(self.puzzle, self.docks, args[1], args[0])
 			prompt = self.prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(args[-1]))
@@ -134,26 +134,11 @@ def get_improved_heuristic_solver(solver):
 			h = super().h(*args)
 			prompt = self.create_prompt(*args, h)
 			if prompt not in self.checked_prompts:
-				difference = self.get_difference(prompt)[0]
+				difference = self.model.get_difference(prompt)[0]
 				self.checked_prompts[prompt] = difference
 			else:
 				difference = self.checked_prompts[prompt]
-			return h + difference
-				
-		def get_difference(self, prompts):
-			difference = []
-			if len(prompts) > 0:
-				model_inputs = self.model.inference_tokenizer(prompts, return_tensors='pt', padding = True)
-				model_inputs = {k: v.to(torch.device(self.device)) for k, v in model_inputs.items()}
-				output = self.model.model.generate(**model_inputs, do_sample = True, top_k = 5, num_return_sequences = self.num_return_sequences, max_new_tokens = 5, pad_token_id = self.model.inference_tokenizer.eos_token_id) #, past_key_values = self.kv_cache[len(prompts)])
-				output_text = self.model.inference_tokenizer.batch_decode(output, skip_special_tokens=True)
-				difference = extract_differences(output_text)
-				difference = [difference[i : i + 3] for i in range(0, len(difference), 3)]
-				difference = [max(set(x), key=x.count) for x in difference]
-				# print(prompt)
-				# print(difference)
-				# breakpoint()
-			return difference
+			return difference if self.target == 'dec' else h + difference
 
 	return ModelAStar
 

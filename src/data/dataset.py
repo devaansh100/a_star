@@ -7,32 +7,13 @@ from collections import Counter, defaultdict
 class HeuristicDataset(Dataset):
     def __init__(self, params, datapoints, raw_datapoints, tokenizer, val = False):
         super().__init__()
-        self.datapoints = [(datapoints[0][i], datapoints[1][i]) for i in range(len(datapoints[0]))]
+        self.datapoints = [tuple(datapoints[j][i] for j in range(len(datapoints))) for i in range(len(datapoints[0]))]
         self.tokenizer = tokenizer
         self.raw_datapoints = raw_datapoints
         self.val = val
+        self.params = params
         if self.val and len(self.datapoints) > 5000:
-            self.idxs = random.sample(range(len(self)), 5000)
-            # print(Counter([int(self.raw_datapoints[x][2] - self.raw_datapoints[x][1]) for x in self.idxs]))
-        # breakpoint()
-        # if not self.val and params.domain == 'maze':
-        #     self.idxs = []
-        #     groups = defaultdict(list)
-        #     for i, (_, heuristic, optimal_cost) in enumerate(self.raw_datapoints):
-        #         groups[optimal_cost - heuristic - 1].append(i)
-        #     for v in groups.values():
-        #         if len(v) < 3500:
-        #             self.idxs.extend(v)
-        #         else:
-        #             self.idxs.extend(random.sample(v, 3500))
-        #     dist = Counter([int(self.raw_datapoints[x][2] - self.raw_datapoints[x][1]) for x in self.idxs])
-        #     # print(dist)
-        #     # print(len(self.idxs))
-        #     # exit()
-        # dist = Counter([int(x[2] - x[1]) for x in self.raw_datapoints]) 
-        # print(dist)
-        # exit()
-        
+            self.idxs = random.sample(range(len(self)), 5000)        
 
     def __len__(self):
         length = len(self.datapoints) if not hasattr(self, 'idxs') else len(self.idxs)
@@ -54,19 +35,22 @@ class HeuristicDataset(Dataset):
         return out
 
     def collate_fn_train(self, batch):
-        input_ids, labels, raw_data = [], [], []
+        input_ids, labels, raw_data, decoder_input_ids = [], [], [], []
         out = {}
         for b in batch:
             input_ids.append(b[1])
             labels.append(b[0])
             raw_data.append(b[2])
-
+            if len(b) == 4:
+                decoder_input_ids.append(b[3])
         out = {
             'input_ids': pad_sequence(input_ids, batch_first=True, padding_value = self.tokenizer.pad_token_id),
             'labels': pad_sequence(labels, batch_first=True, padding_value = -100),
             'raw': raw_data
         }
         out['attention_mask'] = torch.where(out['input_ids'] == self.tokenizer.pad_token_id, 0, 1)
+        if len(decoder_input_ids) > 0:
+            out['decoder_input_ids'] = pad_sequence(decoder_input_ids, batch_first=True, padding_value = self.tokenizer.pad_token_id)
         return out
 
     def collate_fn_test(self, batch): # left_padded tensor for batched generation
@@ -90,15 +74,27 @@ class T5HeuristicDataset(HeuristicDataset):
         out = []
         if hasattr(self, 'idxs'):
             idx = self.idxs[idx]
-        input_ids, labels = self.datapoints[idx]
+        try:
+            input_ids, labels, decoder_input_ids = self.datapoints[idx]
+        except:
+            input_ids, labels, decoder_input_ids = *self.datapoints[idx], []
         if not self.val:
-            out.append(torch.tensor(labels).long())
+            if self.params.loss == 'ce':
+                out.append(torch.tensor(labels).long())
+            elif self.params.loss == 'l2':
+                _, _, heuristic, optimal_cost, deception_score = self.raw_datapoints[idx]
+                if self.params.target == 'dec':
+                    out.append(torch.tensor([deception_score]).float())
+                else:
+                    out.append(torch.tensor([optimal_cost - heuristic]).float())
         input_ids = torch.tensor(input_ids).long()
         out.append(input_ids)
         out.append(self.raw_datapoints[idx])
+        if len(decoder_input_ids) > 0:
+            out.append(torch.tensor(decoder_input_ids).long())
         return out
 
-    def collate_fn_test(self, batch): # left_padded tensor for batched generation
+    def collate_fn_test(self, batch):
         input_ids, raw_data = [], []
         out = {}
         for b in batch:

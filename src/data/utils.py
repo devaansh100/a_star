@@ -9,6 +9,11 @@ import glob
 from transformers import AutoTokenizer
 import torch
 from ddp import *
+import sys
+sys.path.append('data/mazelib')
+# sys.path.append('mazelib/mazelib/generate')
+from mazelib import Maze
+from mazelib.generate.Prims import Prims
 
 # def generate_maze(size):
 # 	maze = np.zeros((size, size))
@@ -25,6 +30,12 @@ from ddp import *
 # 	start = open_pos[0][start], open_pos[1][start]
 # 	goal = open_pos[0][goal], open_pos[1][goal]
 # 	return convert_array_to_maze(maze, start, goal)
+def generate_maze(width, height):
+	m = Maze()
+	m.generator = Prims(width, height)
+	m.generate()
+	return m
+
 
 # def create_maze_dataset(params, num_train, num_val, num_test, size, solver = None):
 # 	solver = AStar_maze if solver is None else solver
@@ -80,111 +91,127 @@ from ddp import *
 # 	with open(f'{params.data_dir}/{params.dataset}/test/alg_mazes_{size}.pkl', 'wb') as f:
 # 		pkl.dump([x[1] for x in test], f)
 
-def create_maze_dataset(params, num_train, num_val, num_test, solver = None):
-	solver = AStar_maze if solver is None else solver
-	train_mazes = np.load(f'{params.data_dir}/maze-transpath/train/maps.npy')
-	val_mazes = np.load(f'{params.data_dir}/maze-transpath/val/maps.npy')
-	test_mazes = np.load(f'{params.data_dir}/maze-transpath/test/maps.npy')
 
-	train_starts = np.load(f'{params.data_dir}/maze-transpath/train/starts.npy')
-	val_starts = np.load(f'{params.data_dir}/maze-transpath/val/starts.npy')
-	test_starts = np.load(f'{params.data_dir}/maze-transpath/test/starts.npy')
+# def create_maze_dataset(params, num_train, num_val, num_test, solver = None):
+# 	solver = AStar_maze if solver is None else solver
+# 	train_mazes = np.load(f'{params.data_dir}/maze-transpath/train/maps.npy')
+# 	val_mazes = np.load(f'{params.data_dir}/maze-transpath/val/maps.npy')
+# 	test_mazes = np.load(f'{params.data_dir}/maze-transpath/test/maps.npy')
 
-	train_goals = np.load(f'{params.data_dir}/maze-transpath/train/goals.npy')
-	val_goals = np.load(f'{params.data_dir}/maze-transpath/val/goals.npy')
-	test_goals = np.load(f'{params.data_dir}/maze-transpath/test/goals.npy')
+# 	train_starts = np.load(f'{params.data_dir}/maze-transpath/train/starts.npy')
+# 	val_starts = np.load(f'{params.data_dir}/maze-transpath/val/starts.npy')
+# 	test_starts = np.load(f'{params.data_dir}/maze-transpath/test/starts.npy')
+
+# 	train_goals = np.load(f'{params.data_dir}/maze-transpath/train/goals.npy')
+# 	val_goals = np.load(f'{params.data_dir}/maze-transpath/val/goals.npy')
+# 	test_goals = np.load(f'{params.data_dir}/maze-transpath/test/goals.npy')
 	
-	train_idxs = np.random.choice(np.arange(train_mazes.shape[0]), num_train, replace = False)
-	val_idxs = np.random.choice(np.arange(val_mazes.shape[0]), num_val, replace = False)
-	test_idxs = np.random.choice(np.arange(test_mazes.shape[0]), num_test, replace = False)
+# 	train_idxs = np.random.choice(np.arange(train_mazes.shape[0]), num_train, replace = False)
+# 	val_idxs = np.random.choice(np.arange(val_mazes.shape[0]), num_val, replace = False)
+# 	test_idxs = np.random.choice(np.arange(test_mazes.shape[0]), num_test, replace = False)
 
-	puzzles = {'train': {}, 'val': {}, 'test': {}}
-	puzzles['train']['mazes'], puzzles['train']['starts'], puzzles['train']['goals'] = train_mazes[train_idxs], train_starts[train_idxs], train_goals[train_idxs]
-	puzzles['val']['mazes'], puzzles['val']['starts'], puzzles['val']['goals'] = val_mazes[val_idxs], val_starts[val_idxs], val_goals[val_idxs]
-	puzzles['test']['mazes'], puzzles['test']['starts'], puzzles['test']['goals'] = test_mazes[test_idxs], test_starts[test_idxs], test_goals[test_idxs]
-	output_files = {}
-	for split in puzzles.keys():
-		output_files[split] = {'mazes': [], 'algs': []}
-		for (maze, start, goal) in tqdm(zip(puzzles[split]['mazes'], puzzles[split]['starts'], puzzles[split]['goals']), total = len(puzzles[split]['mazes'])):
-			maze = maze[0].astype(np.int32)
-			x, y = start[0].nonzero()
-			start = int(x), int(y)
+# 	puzzles = {'train': {}, 'val': {}, 'test': {}}
+# 	puzzles['train']['mazes'], puzzles['train']['starts'], puzzles['train']['goals'] = train_mazes[train_idxs], train_starts[train_idxs], train_goals[train_idxs]
+# 	puzzles['val']['mazes'], puzzles['val']['starts'], puzzles['val']['goals'] = val_mazes[val_idxs], val_starts[val_idxs], val_goals[val_idxs]
+# 	puzzles['test']['mazes'], puzzles['test']['starts'], puzzles['test']['goals'] = test_mazes[test_idxs], test_starts[test_idxs], test_goals[test_idxs]
+# 	output_files = {}
+# 	for split in puzzles.keys():
+# 		output_files[split] = {'mazes': [], 'algs': []}
+# 		for (maze, start, goal) in tqdm(zip(puzzles[split]['mazes'], puzzles[split]['starts'], puzzles[split]['goals']), total = len(puzzles[split]['mazes'])):
+# 			maze = maze[0].astype(np.int32)
+# 			x, y = start[0].nonzero()
+# 			start = int(x), int(y)
 
-			x, y = goal[0].nonzero()
-			goal = int(x), int(y)
-			puzzle_str = convert_array_to_maze(maze, start, goal)
-			alg = solver(puzzle_str)
-			alg.search()
-			if alg.optimal_plan is not None:
-				output_files[split]['mazes'].append(puzzle_str)
-				output_files[split]['algs'].append(alg)
-
-	print(f"Train: {len(output_files['train']['mazes'])}, Val: {len(output_files['val']['mazes'])}, Test: {len(output_files['test']['mazes'])}")
-	os.makedirs(f'{params.data_dir}/{params.dataset}/train', exist_ok = True)
-	os.makedirs(f'{params.data_dir}/{params.dataset}/val', exist_ok = True)
-	os.makedirs(f'{params.data_dir}/{params.dataset}/test', exist_ok = True)
-
-	if num_train > 0:
-		with open(f'{params.data_dir}/{params.dataset}/train/mazes.txt', 'w') as f:
-			f.write(';'.join(output_files['train']['mazes']))
-		
-		with open(f'{params.data_dir}/{params.dataset}/train/alg_mazes.pkl', 'wb') as f:
-			pkl.dump(output_files['train']['algs'], f)
-	
-	if num_val > 0:
-		with open(f'{params.data_dir}/{params.dataset}/val/mazes.txt', 'w') as f:
-			f.write(';'.join(output_files['val']['mazes']))
-		
-		with open(f'{params.data_dir}/{params.dataset}/val/alg_mazes.pkl', 'wb') as f:
-			pkl.dump(output_files['val']['algs'], f)
-	
-	if num_test > 0:
-		with open(f'{params.data_dir}/{params.dataset}/test/mazes.txt', 'w') as f:
-			f.write(';'.join(output_files['test']['mazes']))
-
-		with open(f'{params.data_dir}/{params.dataset}/test/alg_mazes.pkl', 'wb') as f:
-			pkl.dump(output_files['test']['algs'], f)
-
-# def create_maze_dataset(params, num_train, num_val, num_test, size):
-# 	puzzles = []
-# 	p_bar = tqdm(range(num_train + num_val + num_test))
-# 	mazes = set()
-# 	while len(puzzles) < num_train + num_val + num_test:
-# 		maze = generate_maze(size)
-# 		alg = AStar_maze(maze)
-# 		if maze not in mazes:
-# 			mazes.add(maze)
+# 			x, y = goal[0].nonzero()
+# 			goal = int(x), int(y)
+# 			puzzle_str = convert_array_to_maze(maze, start, goal)
+# 			alg = solver(puzzle_str)
 # 			alg.search()
 # 			if alg.optimal_plan is not None:
-# 				if len(alg.optimal_plan) > size and len(alg.optimal_plan)/alg.closed[0].h > 1.3:
-# 					puzzles.append((maze, alg))
-# 					p_bar.n += 1
-# 					p_bar.refresh()
-	
-# 	random.shuffle(puzzles)
-# 	train, val, test = puzzles[:num_train], puzzles[num_train: num_train + num_val], puzzles[num_train + num_val:]
-# 	print(f'Train: {len(train)}, Val: {len(val)}, Test: {len(test)}')
+# 				output_files[split]['mazes'].append(puzzle_str)
+# 				output_files[split]['algs'].append(alg)
+
+# 	print(f"Train: {len(output_files['train']['mazes'])}, Val: {len(output_files['val']['mazes'])}, Test: {len(output_files['test']['mazes'])}")
 # 	os.makedirs(f'{params.data_dir}/{params.dataset}/train', exist_ok = True)
 # 	os.makedirs(f'{params.data_dir}/{params.dataset}/val', exist_ok = True)
 # 	os.makedirs(f'{params.data_dir}/{params.dataset}/test', exist_ok = True)
-# 	with open(f'{params.data_dir}/{params.dataset}/train/mazes_{size}.txt', 'w') as f:
-# 		f.write(';'.join([x[0] for x in train]))
-	
-# 	with open(f'{params.data_dir}/{params.dataset}/val/mazes_{size}.txt', 'w') as f:
-# 		f.write(';'.join([x[0] for x in val]))
-	
-# 	with open(f'{params.data_dir}/{params.dataset}/test/mazes_{size}.txt', 'w') as f:
-# 		f.write(';'.join([x[0] for x in test]))
-	
 
-# 	with open(f'{params.data_dir}/{params.dataset}/train/alg_mazes_{size}.pkl', 'wb') as f:
-# 		pkl.dump([x[1] for x in train], f)
+# 	if num_train > 0:
+# 		with open(f'{params.data_dir}/{params.dataset}/train/mazes.txt', 'w') as f:
+# 			f.write(';'.join(output_files['train']['mazes']))
+		
+# 		with open(f'{params.data_dir}/{params.dataset}/train/alg_mazes.pkl', 'wb') as f:
+# 			pkl.dump(output_files['train']['algs'], f)
 	
-# 	with open(f'{params.data_dir}/{params.dataset}/val/alg_mazes_{size}.pkl', 'wb') as f:
-# 		pkl.dump([x[1] for x in val], f)
+# 	if num_val > 0:
+# 		with open(f'{params.data_dir}/{params.dataset}/val/mazes.txt', 'w') as f:
+# 			f.write(';'.join(output_files['val']['mazes']))
+		
+# 		with open(f'{params.data_dir}/{params.dataset}/val/alg_mazes.pkl', 'wb') as f:
+# 			pkl.dump(output_files['val']['algs'], f)
 	
-# 	with open(f'{params.data_dir}/{params.dataset}/test/alg_mazes_{size}.pkl', 'wb') as f:
-# 		pkl.dump([x[1] for x in test], f)
+# 	if num_test > 0:
+# 		with open(f'{params.data_dir}/{params.dataset}/test/mazes.txt', 'w') as f:
+# 			f.write(';'.join(output_files['test']['mazes']))
+
+# 		with open(f'{params.data_dir}/{params.dataset}/test/alg_mazes.pkl', 'wb') as f:
+# 			pkl.dump(output_files['test']['algs'], f)
+
+def create_maze_dataset(params, num_train, num_val, num_test, size):
+	puzzles = []
+	p_bar = tqdm(range(num_train + num_val + num_test))
+	mazes = set()
+	while len(puzzles) < num_train + num_val + num_test:
+		m = generate_maze(size, size)
+		iters = 10
+		while iters > 0:
+			m.generate_entrances(start_outer=False, end_outer=False)
+			maze = convert_array_to_maze(m.grid, m.start, m.end)
+			alg = AStar_maze(maze)
+			if maze not in mazes:
+				mazes.add(maze)
+				alg.search()
+				if alg.optimal_plan is not None:
+					if len(alg.optimal_plan) > 2*size and len(alg.closed)/len(alg.optimal_plan) > 3:
+						# print(maze)
+						puzzles.append((maze, alg))
+						p_bar.n += 1
+						p_bar.refresh()
+					iters = 0
+			iters -= 1
+	
+	random.shuffle(puzzles)
+	train, val, test = puzzles[:num_train], puzzles[num_train: num_train + num_val], puzzles[num_train + num_val:]
+	print(f'Train: {len(train)}, Val: {len(val)}, Test: {len(test)}')
+	os.makedirs(f'{params.data_dir}/{params.dataset}/train', exist_ok = True)
+	os.makedirs(f'{params.data_dir}/{params.dataset}/val', exist_ok = True)
+	os.makedirs(f'{params.data_dir}/{params.dataset}/test', exist_ok = True)
+	
+	if num_train > 0:
+		# for i in range(1, 1 + len(train) // 1000):
+		# 	with open(f'{params.data_dir}/{params.dataset}/train/mazes_{2*size}_{i * 1000}.txt', 'w') as f:
+		# 		f.write(';'.join([x[0] for x in train[(i - 1) * 1000 : i * 1000]]))
+
+		# 	with open(f'{params.data_dir}/{params.dataset}/train/alg_mazes_{2*size}_{i * 1000}.pkl', 'wb') as f:
+		# 		pkl.dump([x[1] for x in train[(i - 1) * 1000 : i * 1000]], f)
+		with open(f'{params.data_dir}/{params.dataset}/train/mazes_{2*size}.txt', 'w') as f:
+			f.write(';'.join([x[0] for x in train]))
+		
+		with open(f'{params.data_dir}/{params.dataset}/train/alg_mazes_{2*size}.pkl', 'wb') as f:
+			pkl.dump([x[1] for x in train], f)
+	
+	if num_val > 0:
+		with open(f'{params.data_dir}/{params.dataset}/val/mazes_{2*size}.txt', 'w') as f:
+			f.write(';'.join([x[0] for x in val]))
+		
+		with open(f'{params.data_dir}/{params.dataset}/val/alg_mazes_{2*size}.pkl', 'wb') as f:
+			pkl.dump([x[1] for x in val], f)
+	if num_test > 0:
+		with open(f'{params.data_dir}/{params.dataset}/test/mazes_{2*size}.txt', 'w') as f:
+			f.write(';'.join([x[0] for x in test]))
+				
+		with open(f'{params.data_dir}/{params.dataset}/test/alg_mazes_{2*size}.pkl', 'wb') as f:
+			pkl.dump([x[1] for x in test], f)
 
 def read_boxoban(params, split, hardness = 'unfiltered'):
 	path = f'{params.data_dir}/boxoban-levels/{hardness}/{split}/'
@@ -281,7 +308,7 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 
 def annotate_deceptive_nodes(alg):
 	for node in alg.closed:
-		num_generations = 3
+		num_generations = float('Inf')
 		while not node.is_optimal and num_generations > 0:
 			node.deception_score += 1
 			num_generations -= 1
@@ -299,10 +326,21 @@ def create_supervision(params, solver = None):
 		closed_set.remove(node)
 		return node
 	
-	def optimal_sample(alg, num_chosen):
-		optimal_plan = alg.optimal_plan.copy()
+	def optimal_sample(alg, num_chosen, difficulty = 'optimal'):
+		optimal_cost = alg.optimal_plan[-1].g
+		if difficulty == 'optimal':
+			optimal_plan = alg.optimal_plan.copy()
+		else:
+			if difficulty == 'hard':
+				optimal_plan = alg.optimal_plan[:len(alg.optimal_plan)//3]
+			elif difficulty == 'med':
+				optimal_plan = alg.optimal_plan[len(alg.optimal_plan)//3: 2 * len(alg.optimal_plan)//3]
+			elif difficulty == 'easy':
+				optimal_plan = alg.optimal_plan[2*len(alg.optimal_plan)//3:]
+			elif difficulty == 'easy_med':
+				optimal_plan = alg.optimal_plan[len(alg.optimal_plan)//3:]
 		nodes = random.sample(optimal_plan, min(num_chosen, len(optimal_plan)))
-		optimal_costs = [optimal_plan[-1].g - node.g for node in nodes]
+		optimal_costs = [optimal_cost - node.g for node in nodes]
 		# datapoints = []
 		# for node, optimal_cost in zip(nodes, optimal_costs):
 		# 	datapoints.append((puzzle_str, node.h, optimal_cost))
@@ -320,6 +358,8 @@ def create_supervision(params, solver = None):
 	for split in ['train', 'val']:
 		seqs_per_puzzle = params.train_seqs if split == 'train' else params.val_seqs
 		sampled_nodes = params.sampled_nodes if split == 'train' else seqs_per_puzzle // 2
+		if len(params.alg_files) > 0:
+			alg_files = [f'{path}/{split}/{alg_file}.pkl' for alg_file in params.alg_files]
 		alg_files = glob.glob(f'{path}/{split}/*.pkl')
 		for alg_file in alg_files:
 			try:
@@ -349,8 +389,8 @@ def create_supervision(params, solver = None):
 					if params.sample == 'random':
 						node = random_sample(closed_set)
 
-					elif params.sample == 'optimal':
-						nodes, optimal_costs = optimal_sample(alg, num_chosen)
+					elif 'optimal' in params.sample:
+						nodes, optimal_costs = optimal_sample(alg, num_chosen, difficulty = params.sample.split('optimal_')[-1])
 						num_chosen -= len(nodes)
 						for node, optimal_cost in zip(nodes, optimal_costs):
 							dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost, node.deception_score))
@@ -359,6 +399,17 @@ def create_supervision(params, solver = None):
 					elif params.sample == 'deception':
 						node = deception_sample(closed_set)
 
+					elif params.sample == 'opt_dec_rand':
+						if num_chosen > (seqs_per_puzzle - sampled_nodes/2):
+							node = random_sample(closed_set)
+						elif num_chosen > (seqs_per_puzzle - sampled_nodes):
+							node = deception_sample(closed_set)
+						else:
+							nodes, optimal_costs = optimal_sample(alg, num_chosen)
+							num_chosen -= len(nodes)
+							for node, optimal_cost in zip(nodes, optimal_costs):
+								dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost, node.deception_score))
+					
 					elif 'rand_' in params.sample:
 						if num_chosen > (seqs_per_puzzle - sampled_nodes): # seqs_per_puzzle // 2:
 							node = random_sample(closed_set)
@@ -402,7 +453,7 @@ def create_supervision(params, solver = None):
 
 def tokenize_data(params, datapoints, tokenizer, filename):
 	legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
-	data_inputs, data_labels = [], []
+	data_inputs, data_labels, data_decoder_inputs = [], [], []
 	with open(params.prompt_file) as f:
 		prompt = f.read()
 	for datapoint in tqdm(datapoints, desc = filename):
@@ -410,45 +461,80 @@ def tokenize_data(params, datapoints, tokenizer, filename):
 			puzzle_str, heuristic, optimal_cost = datapoint
 		elif len(datapoint) == 5:
 			initial_str, puzzle_str, heuristic, optimal_cost, deception_score = datapoint
-		initial_str, deception_score = '', 0
+		if isinstance(heuristic, tuple):
+			heuristic, pred_diff = heuristic
+		else:
+			pred_diff = None
+		# initial_str, deception_score = '', 0
 		# optimal_cost is actually counting one extra step, since start and goal are in the plan for maze. In sokoban, you don't end at the goal
-		difference = optimal_cost - heuristic
+		if params.target == 'dec':
+			difference = deception_score
+		else:
+			difference = optimal_cost - heuristic
 		input_prompt = prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(int(heuristic))).replace('{initial_str}', initial_str)
 		input_prompt = input_prompt.replace('{puzzle_legend}', legend[params.domain]).replace('{domain}', params.domain)
 		input_ids = tokenizer(input_prompt).input_ids
 		if isinstance(difference, int):
-			labels = tokenizer(str(int(difference)), add_special_tokens = 't5' in params.base_model).input_ids
+			label_str = f'{int(difference)}'
 		else:
-			labels = tokenizer(str(round(difference, 2)), add_special_tokens = 't5' in params.base_model).input_ids
+			label_str = f'{round(difference, 2)}'
+		if pred_diff is not None:
+			label_str = f'{int(pred_diff)}, error = {optimal_cost - heuristic - pred_diff}'
+		labels = tokenizer(label_str, add_special_tokens = 't5' in params.base_model).input_ids
+		decoder_input_ids = None
+		# if error is None:
+		# 	labels = tokenizer(label_str, add_special_tokens = 't5' in params.base_model).input_ids
+		# 	decoder_input_ids = None
+		# else:
+		# 	prefix_label_str = label_str
+		# 	label_str = f', error = {optimal_cost - heuristic - error}'
+		# 	prefix_label_tokens = tokenizer(prefix_label_str, add_special_tokens = False).input_ids
+		# 	label_tokens = tokenizer(label_str, add_special_tokens = False).input_ids
+		# 	decoder_input_ids = [tokenizer.bos_token_id] + prefix_label_tokens + label_tokens
+		# 	labels = [-100] * len(prefix_label_tokens) + label_tokens + [tokenizer.eos_token_id] # shifted right
 		data_inputs.append(input_ids)
 		data_labels.append(labels)
+		if decoder_input_ids is not None:
+			data_decoder_inputs.append(decoder_input_ids)
 	with open(filename, 'wb') as f:
-		pkl.dump((data_inputs, data_labels), f)
-	return data_inputs, data_labels
+		if len(data_decoder_inputs) > 0:
+			pkl.dump((data_inputs, data_labels, data_decoder_inputs), f)
+			return data_inputs, data_labels, data_decoder_inputs
+		else:
+			pkl.dump((data_inputs, data_labels), f)
+			return data_inputs, data_labels
 
 def read_data(params, tokenizer):
 	if is_main_process():
 		print('Loading data...')
-	data = {'train': {'raw': [], 'tokenized': ([], [])}, 'val': {'raw': [], 'tokenized': ([], [])}, 'test': {'raw': [], 'alg': []}}
+	data = {'train': {'raw': [], 'tokenized': ([], [], [])}, 'val': {'raw': [], 'tokenized': ([], [], [])}, 'test': {'raw': [], 'alg': []}}
 	path = f'{params.data_dir}/{params.dataset}'
 	for split in ['train', 'val']:
-		for file in params.train_files: # ['alg_mazes_5.pkl', 'alg_mazes_7.pkl', 'alg_mazes_10.pkl']
+		files = params.val_files if split == 'val' else params.train_files
+		for file in files:
 			with open(f'{path}/{split}/supervised_{file}.pkl', 'rb') as f:
 				datapoints = pkl.load(f)
 				data[split]['raw'].extend(datapoints)
 			
-			tokenized_file = f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}/tokenized_{file}.pkl"
+			if params.target == 'dec':
+				tokenized_file = f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}/tokenized_{file}_dec.pkl"
+			else:
+				tokenized_file = f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}/tokenized_{file}.pkl"
 			if os.path.exists(tokenized_file):
 				with open(tokenized_file, 'rb') as f:
-					input_ids, labels = pkl.load(f)
+					tokenized_data = pkl.load(f)
 			else:
 				os.makedirs(f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}", exist_ok = True)
-				input_ids, labels = tokenize_data(params, datapoints, tokenizer, tokenized_file)
-			data[split]['tokenized'][0].extend(input_ids)
-			data[split]['tokenized'][1].extend(labels)
+				tokenized_data = tokenize_data(params, datapoints, tokenizer, tokenized_file)
+			data[split]['tokenized'][0].extend(tokenized_data[0])
+			data[split]['tokenized'][1].extend(tokenized_data[1])
+			if len(tokenized_data) == 3:
+				data[split]['tokenized'][2].extend(tokenized_data[2])
+		if len(data[split]['tokenized'][-1]) == 0:
+			data[split]['tokenized'] = data[split]['tokenized'][:-1]
 	
 	ilr_split = params.test_ilr[0]
-	for file in params.test_ilr[1:]: # ['mazes_5', 'mazes_7', 'mazes_10']:
+	for file in params.test_ilr[1:]:
 		with open(f'{path}/{ilr_split}/{file}.txt') as f:
 			data['test']['raw'].extend(f.read().split(';'))
 		
