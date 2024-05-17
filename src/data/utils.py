@@ -120,20 +120,26 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 			print(f'{split}: {len(astar)}')
 			path = f'{params.data_dir}/{params.dataset}/{split}/'
 			os.makedirs(path, exist_ok = True)
+
+			with open(path + f'sokoban_{subsample}.txt', 'w') as f:
+				f.write(';'.join(astar))
+
+			with open(path + f'alg_sokoban_{subsample}.pkl', 'wb') as f:
+				pkl.dump(algs, f)
 			
-			if split == 'train':
-				for i in range(1, 1 + len(astar) // 1000):
-					with open(path + f'sokoban_{subsample}_{i * 1000}.txt', 'w') as f:
-						f.write(';'.join(astar[(i - 1) * 1000 : i * 1000]))
+			# if split == 'train':
+			# 	for i in range(1, 1 + len(astar) // 1000):
+			# 		with open(path + f'sokoban_{subsample}_{i * 1000}.txt', 'w') as f:
+			# 			f.write(';'.join(astar[(i - 1) * 1000 : i * 1000]))
 
-					with open(path + f'alg_sokoban_{subsample}_{i * 1000}.pkl', 'wb') as f:
-						pkl.dump(algs[(i - 1) * 1000 : i * 1000], f)
-			else:
-				with open(path + f'sokoban_{subsample}.txt', 'w') as f:
-					f.write(';'.join(astar))
+			# 		with open(path + f'alg_sokoban_{subsample}_{i * 1000}.pkl', 'wb') as f:
+			# 			pkl.dump(algs[(i - 1) * 1000 : i * 1000], f)
+			# else:
+			# 	with open(path + f'sokoban_{subsample}.txt', 'w') as f:
+			# 		f.write(';'.join(astar))
 
-				with open(path + f'alg_sokoban_{subsample}.pkl', 'wb') as f:
-					pkl.dump(algs, f)
+			# 	with open(path + f'alg_sokoban_{subsample}.pkl', 'wb') as f:
+			# 		pkl.dump(algs, f)
 
 def annotate_deceptive_nodes(alg):
 	for node in alg.closed:
@@ -173,32 +179,28 @@ def create_supervision(params, solver = None):
 	path = f'{params.data_dir}/{params.dataset}'	
 	for split in ['train', 'val']:
 		seqs_per_puzzle = params.train_seqs if split == 'train' else params.val_seqs
-		if len(params.alg_files) > 0:
-			alg_files = [f'{path}/{split}/{alg_file}.pkl' for alg_file in params.alg_files]
-		alg_files = glob.glob(f'{path}/{split}/*.pkl')
+		alg_files = [f'{path}/{split}/{alg_file}.pkl' for alg_file in params.alg_files] if len(params.alg_files) else glob.glob(f'{path}/{split}/*.pkl')
 		for alg_file in alg_files:
 			if params.domain == 'sokoban':
-				try:
-					incorrect_file = str(params.create_data[3]) not in alg_file or 'supervised' in alg_file
-				except:
-					incorrect_file = str(params.bootstrap_data[3]) not in alg_file or 'supervised' in alg_file
+				incorrect_file = str(params.create_data[3]) not in alg_file or 'supervised' in alg_file
 			else:
 				incorrect_file = 'supervised' in alg_file
 
 			if incorrect_file:
 				continue
 			dataset = []
-			with open(alg_file, 'rb') as f:
-				algs = pkl.load(f)
+			try:
+				with open(alg_file, 'rb') as f:
+					algs = pkl.load(f)
+			except Exception as e:
+				print(str(e))
+				continue
 			for alg in tqdm(algs, desc = alg_file):
 				initial_str = get_puzzle_str(alg, alg.closed[0])
 				closed_set = alg.closed.copy()
-				num_chosen, iters = seqs_per_puzzle, 0
-				while num_chosen > 0 and len(closed_set) > 0:
-					nodes, optimal_costs = optimal_sample(alg, num_chosen, difficulty = params.sample.split('optimal_')[-1])
-					num_chosen -= len(nodes)
-					for node, optimal_cost in zip(nodes, optimal_costs):
-						dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost))
+				nodes, optimal_costs = optimal_sample(alg, seqs_per_puzzle, difficulty = params.sample.split('optimal_')[-1])
+				for node, optimal_cost in zip(nodes, optimal_costs):
+					dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost))
 			alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{params.sample}.pkl')
 			with open(f'{path}/{split}/supervised_{alg_file}', 'wb') as f:
 				pkl.dump(dataset, f)
@@ -214,15 +216,52 @@ def tokenize_data(params, datapoints, tokenizer, filename):
 		pred_diff = None
 		if isinstance(heuristic, tuple):
 			heuristic, pred_diff = heuristic
+			if params.loss == 'ft':
+				pred_diff = None
 		difference = optimal_cost - heuristic
 		input_prompt = prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(int(heuristic))).replace('{initial_str}', initial_str)
 		input_prompt = input_prompt.replace('{puzzle_legend}', legend[params.domain]).replace('{domain}', params.domain)
 		input_ids = tokenizer(input_prompt).input_ids
-		label_str = str(int(difference)) if isinstance(difference, int) else str(round(difference, 2))
-		if pred_diff is not None:
-			label_str = f'{int(pred_diff)}, {optimal_cost - heuristic - pred_diff}'
-		labels = tokenizer(label_str, add_special_tokens = 't5' in params.base_model).input_ids
-		decoder_input_ids = None
+		label_str = f'{int(difference)}'
+		if pred_diff == difference:
+			continue
+		if pred_diff is not None and pred_diff != difference:
+			if 't5' not in params.base_model:
+				raise NotImplementedError("GB loss does not work for decoder-only models yet")
+			if isinstance(pred_diff, int):
+				prefix_label_str = f'{int(pred_diff)}'
+				suffix_label_str = f', {int(optimal_cost - heuristic - pred_diff)}'
+			else:
+				prefix_label_str = f'{round(pred_diff, 2)}'
+				suffix_label_str = f', {round(optimal_cost - heuristic - pred_diff, 2)}'
+			label_str = prefix_label_str + suffix_label_str
+			prefix_labels = [tokenizer.bos_token_id] + tokenizer(prefix_label_str, add_special_tokens = False).input_ids
+			suffix_labels = tokenizer(suffix_label_str, add_special_tokens = False).input_ids + [tokenizer.eos_token_id]
+			labels = [-100] * len(prefix_labels) + suffix_labels
+			decoder_input_ids = prefix_labels + suffix_labels
+			labels = labels[1:]
+			decoder_input_ids = decoder_input_ids[:-1]
+		else:
+			labels = tokenizer(label_str, add_special_tokens = 't5' in params.base_model).input_ids
+			decoder_input_ids = labels[:-1]
+			labels = labels[1:]
+			# labels[0] = -100
+
+		if params.loss == 'l2':
+			if 't5' not in params.base_model:
+				raise NotImplementedError("L2 loss does not work for decoder-only models yet")
+			# pred_1, pred_2 = label_str.split(', ')
+			# if isinstance(pred_1, int):
+			# 	pred_1, pred_2 = int(pred_1), int(pred_2)
+			# else:
+			# 	pred_1, pred_2 = float(pred_1), float(pred_2)
+			# decoder_input_ids = [tokenizer.bos_token_id] + tokenizer(str(pred_1) + ', ', add_special_tokens=False).input_ids
+			# labels = [pred_1 if pred_1 == difference else -100, pred_2]
+			# if labels[0] == -100:
+			# 	assert labels[1] != 0
+			decoder_input_ids = [tokenizer.bos_token_id]
+			labels = [int(label_str)]
+		# decoder_input_ids = None
 		# if error is None:
 		# 	labels = tokenizer(label_str, add_special_tokens = 't5' in params.base_model).input_ids
 		# 	decoder_input_ids = None
@@ -237,13 +276,17 @@ def tokenize_data(params, datapoints, tokenizer, filename):
 		data_labels.append(labels)
 		if decoder_input_ids is not None:
 			data_decoder_inputs.append(decoder_input_ids)
-	with open(filename, 'wb') as f:
-		if len(data_decoder_inputs) > 0:
-			pkl.dump((data_inputs, data_labels, data_decoder_inputs), f)
-			return data_inputs, data_labels, data_decoder_inputs
-		else:
-			pkl.dump((data_inputs, data_labels), f)
-			return data_inputs, data_labels
+	# with open(filename, 'wb') as f:
+	# 	if len(data_decoder_inputs) > 0:
+	# 		pkl.dump((data_inputs, data_labels, data_decoder_inputs), f)
+	# 		return data_inputs, data_labels, data_decoder_inputs
+	# 	else:
+	# 		pkl.dump((data_inputs, data_labels), f)
+	# 		return data_inputs, data_labels
+	if len(data_decoder_inputs) > 0:
+		return data_inputs, data_labels, data_decoder_inputs
+	else:
+		return data_inputs, data_labels
 
 def read_data(params, tokenizer):
 	print('Loading data...')
@@ -256,8 +299,12 @@ def read_data(params, tokenizer):
 				datapoints = pkl.load(f)
 				data[split]['raw'].extend(datapoints)
 			
-			tokenized_file = f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}/tokenized_{file}_{params.prompt_file.replace('.txt', '')}.pkl"
-			if os.path.exists(tokenized_file):
+			tokenized_file = f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}/tokenized_{file}_{params.prompt_file.split('/')[-1].replace('.txt', '')}"
+			if params.loss == 'ft' and split == 'train':
+				tokenized_file += '_ft.pkl'
+			else:
+				tokenized_file += '.pkl'
+			if os.path.exists(tokenized_file) and not params.retokenize:
 				with open(tokenized_file, 'rb') as f:
 					tokenized_data = pkl.load(f)
 			else:

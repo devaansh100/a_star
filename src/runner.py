@@ -25,6 +25,10 @@ class Runner():
             self.model_suffix += f'_l2_{params.num_heads}'
         if params.gb:
             self.model_suffix += '_gb'
+        if len(params.suffix):
+            self.model_suffix = f'_{params.suffix}'
+        # if 'ss' not in self.model_suffix:
+        #     self.model_suffix += '_20'
         
         self.prompt = open(params.prompt_file).read()
         legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
@@ -51,10 +55,7 @@ class Runner():
         print(f'Loading from {self.model_dir}/{filename}')
         checkpoint = torch.load(self.model_dir + '/' + filename, map_location = torch.device(self.params.device))
         model.load_state_dict(checkpoint['model'], strict = False)
-        # for name, param in model.named_parameters():
-        #     if name in checkpoint['model']:
-        #         param.requires_grad = False
-        # self.best_test = checkpoint['best_test']
+        # breakpoint()
         if load_opt:
             self.optimizer.load_state_dict(checkpoint['optimizer'])
         return model, checkpoint['epoch']
@@ -68,9 +69,6 @@ class Runner():
             batch = {k: v.to(torch.device(self.params.device)) for k, v in batch.items()}
             outputs = model(batch)
             loss = outputs[0]
-            if torch.isnan(loss):
-                print('NaN loss encountered. Training further not useful. Try testing model_best_test.pth')
-                exit()
             total_loss += loss.item()
             p_bar.set_postfix({'loss': loss.item()})
             loss.backward()
@@ -168,7 +166,7 @@ class Runner():
     def test_ilr(self, model):
         algs, ilr_p, swc_p = [], [], []
         time_p, time_ref = [], []
-        bootstrapped_plans, ref_bs_idxs = [], []
+        bootstrapped_plans = []
         solver = get_improved_heuristic_solver(AStar_maze if self.params.domain == 'maze' else AStar_sokoban)
         # solver = get_random_heuristic_solver(AStar_maze if self.params.domain == 'maze' else AStar_sokoban)
         with torch.no_grad():
@@ -176,7 +174,7 @@ class Runner():
             # model, kv_cache, prompt = self.prepare_model_for_astar(model, self.prompt)
             p_bar = tqdm(zip(self.test_puzzles['raw'], self.test_puzzles['alg']),  total = len(self.test_puzzles['raw']))
             for i, (puzzle, ref_alg) in enumerate(p_bar):
-                alg = solver(puzzle, model = model, target = self.params.target, prompt = self.prompt, domain = self.params.domain, device = self.params.device)
+                alg = solver(puzzle, model = model, prompt = self.prompt, domain = self.params.domain)
                 # alg = solver(puzzle, domain = self.params.domain, strategy = 'uniform')
                 start = time.time()
                 alg.search()
@@ -185,21 +183,18 @@ class Runner():
                 algs.append(alg)
                 ilr_p.append(len(ref_alg.closed)/len(alg.closed))
                 swc_p.append(ref_alg.optimal_plan[-1].g/alg.optimal_plan[-1].g)
-                if ilr_p[-1] > 1 and swc_p[-1] == 1:
-                    ref_alg.optimal_plan = alg.optimal_plan
-                    bootstrapped_plans.append(ref_alg)
-                else:
-                    bootstrapped_plans.append((alg, ref_alg))
-                    ref_bs_idxs.append(i)
+                bootstrapped_plans.append(alg)
                 p_bar.set_postfix({'swc': round(sum(swc_p)/(i + 1), 2), 'ilr': round(sum(ilr_p)/(i + 1), 4), 'ilr_p': round(ilr_p[-1], 2), 'swc_p': round(swc_p[-1], 2)})
 
         if len(self.params.create_gb_data) > 0:
-            for idx in ref_bs_idxs:
-                bootstrapped_plans[idx][0].populate_h(bootstrapped_plans[idx][1].optimal_plan)
-                bootstrapped_plans[idx] = bootstrapped_plans[idx][1]
+            for idx in tqdm(range(len(bootstrapped_plans)), desc = 'Refactoring gb plans'):
+                if ilr_p[idx] > 1 and swc_p[idx] == 1: # If new plan is optimal with better heuristic, use that one. Else use the one in ref_alg
+                    bootstrapped_plans[idx].populate_h(bootstrapped_plans[idx].optimal_plan, store_as_tuple = True) # Refactoring node.h as (heuristic, pred_diff). No actual inference will be performed as prompts are cached
+                    self.test_puzzles['alg'][idx].optimal_plan = bootstrapped_plans[idx].optimal_plan # Only ref_alg is pickleable. NOTE: Only use with optimal sampling
+                bootstrapped_plans[idx].populate_h(self.test_puzzles['alg'][idx].optimal_plan, store_as_tuple = True)
             
             with open(os.path.join(self.params.data_dir, self.params.dataset, self.params.test_ilr[0], 'alg_' + self.params.test_ilr[1] + f'_{self.params.create_gb_data}.pkl'), 'wb') as f:
-                pkl.dump(bootstrapped_plans, f)
+                pkl.dump(self.test_puzzles['alg'], f)
 
         # time_ref = self.get_astar_runtimes()
         time_ref = [0] * len(time_p)
@@ -293,7 +288,6 @@ class Runner():
         else:
             self.optimizer = Adafactor(model.parameters(), scale_parameter=False, relative_step=False, warmup_init=False, lr=self.params.learning_rate)
 
-
         if len(self.params.load_model):
             model, last_epoch = self.load_model(model, self.params.load_model, load_opt = not (self.params.test or self.params.test_ilr or self.params.refresh_training))
             if self.params.refresh_training:
@@ -325,6 +319,8 @@ class Runner():
             self.lr_scheduler.step()
 
         for epoch in range(last_epoch, self.params.num_epochs - 1):
+            if epoch == 20 and '_20' in self.model_suffix:
+                self.model_suffix = self.model_suffix[:-3] # Removing _20
             self.fit_one_epoch(model, epoch + 1)
             self.save_model(model, epoch + 1, f'model_latest{self.model_suffix}.pth')
             self.test(model, epoch + 1)

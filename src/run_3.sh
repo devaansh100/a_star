@@ -1,0 +1,12 @@
+#!/bin/bash
+# python main.py --domain sokoban --dataset boxoban-grade --job grade-6000-optimal --train-files alg_sokoban_2_1000_optimal alg_sokoban_2_2000_optimal alg_sokoban_2_3000_optimal alg_sokoban_2_4000_optimal alg_sokoban_2_5000_optimal alg_sokoban_2_6000_optimal --val-files alg_sokoban_2_optimal
+# python main.py --domain sokoban --dataset boxoban-grade --job grade-6000-optimal --lm model_best_test.pth --test-ilr train sokoban_2_1000 --create-gb-data r1_lrg
+# python main.py --domain sokoban --dataset boxoban-grade --job grade-6000-optimal --lm model_best_test.pth --test-ilr train sokoban_2_2000 --create-gb-data r1_lrg
+# python main.py --domain sokoban --dataset boxoban-grade --job grade-6000-optimal --lm model_best_test.pth --test-ilr train sokoban_2_3000 --create-gb-data r1_lrg
+# python main.py --domain sokoban --dataset boxoban-grade --job grade-6000-optimal --lm model_best_test.pth --test-ilr train sokoban_2_4000 --create-gb-data r1_lrg
+# python main.py --domain sokoban --dataset boxoban-grade --job grade-6000-optimal --lm model_best_test.pth --test-ilr train sokoban_2_5000 --create-gb-data r1_lrg
+# python main.py --domain sokoban --dataset boxoban-grade --job grade-6000-optimal --lm model_best_test.pth --test-ilr train sokoban_2_6000 --create-gb-data r1_lrg
+# python main.py --domain sokoban --dataset boxoban-grade --job none --create-data 0 0 0 2 --alg-files alg_sokoban_2_1000_r1_lrg alg_sokoban_2_2000_r1_lrg alg_sokoban_2_3000_r1_lrg alg_sokoban_2_4000_r1_lrg alg_sokoban_2_5000_r1_lrg alg_sokoban_2_6000_r1_lrg
+# python main.py --domain sokoban --dataset boxoban-grade --job grade-6000-optimal --train-files alg_sokoban_2_1000_r1_lrg_optimal alg_sokoban_2_2000_r1_lrg_optimal alg_sokoban_2_3000_r1_lrg_optimal alg_sokoban_2_4000_r1_lrg_optimal alg_sokoban_2_5000_r1_lrg_optimal alg_sokoban_2_6000_r1_lrg_optimal alg_sokoban_2_1000_optimal alg_sokoban_2_2000_optimal alg_sokoban_2_3000_optimal alg_sokoban_2_4000_optimal alg_sokoban_2_5000_optimal alg_sokoban_2_6000_optimal --val-files alg_sokoban_2_optimal --lm model_best_test.pth --suffix gb_nl --rt --retokenize
+python main.py --domain sokoban --dataset boxoban-eval --job grade-1000-optimal --lm model_best_test_ss.pth --test-ilr test sokoban_7k_2
+python main.py --domain sokoban --dataset boxoban-eval --job grade-1000-optimal --lm model_best_test_ss.pth --test-ilr test sokoban_2 sokoban_3 sokoban_4 sokoban_7k_4

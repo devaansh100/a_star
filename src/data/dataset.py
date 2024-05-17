@@ -51,6 +51,7 @@ class HeuristicDataset(Dataset):
         out['attention_mask'] = torch.where(out['input_ids'] == self.tokenizer.pad_token_id, 0, 1)
         if len(decoder_input_ids) > 0:
             out['decoder_input_ids'] = pad_sequence(decoder_input_ids, batch_first=True, padding_value = self.tokenizer.pad_token_id)
+            out['decoder_attention_mask'] = torch.where(out['decoder_input_ids'] == self.tokenizer.pad_token_id, 0, 1)
         return out
 
     def collate_fn_test(self, batch): # left_padded tensor for batched generation
@@ -79,11 +80,14 @@ class T5HeuristicDataset(HeuristicDataset):
         except:
             input_ids, labels, decoder_input_ids = *self.datapoints[idx], []
         if not self.val:
-            if self.params.loss == 'ce':
+            # if self.params.loss == 'l2':
+            #     _, _, heuristic, optimal_cost = self.raw_datapoints[idx]
+            #     out.append(torch.tensor([optimal_cost - heuristic]).float())
+            # else:
+            if self.params.loss == 'l2':
+                out.append(torch.tensor(labels).float())
+            else:
                 out.append(torch.tensor(labels).long())
-            elif self.params.loss == 'l2':
-                _, _, heuristic, optimal_cost = self.raw_datapoints[idx]
-                out.append(torch.tensor([optimal_cost - heuristic]).float())
         input_ids = torch.tensor(input_ids).long()
         out.append(input_ids)
         out.append(self.raw_datapoints[idx])

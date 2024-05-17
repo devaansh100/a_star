@@ -101,11 +101,6 @@ def extract_differences(diffs):
 			diffs[i] = int(diffs[i])
 		except:
 			vals = diffs[i].split(',')
-			try:
-				if len(vals) > 1:
-					vals[1] = vals[1].split('=')[-1]
-			except:
-				vals[1] = '0'
 			for j in range(len(vals)):
 				try:
 					vals[j] = int(vals[j])

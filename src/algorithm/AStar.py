@@ -89,13 +89,13 @@ def get_improved_heuristic_solver(solver):
 			self.prompt = kwargs['prompt'].replace('{initial_str}', args[0])
 			self.domain = kwargs['domain']
 			# self.kv_cache = kwargs['kv_cache']
-			self.device = kwargs['device']
 			self.checked_prompts = {}
-			self.target = kwargs['target']
 			super().__init__(*args, **kwargs)
 		
-		def populate_h(self, nodes):
-			if self.device == 'cpu':
+		def populate_h(self, nodes, store_as_tuple = False):
+			if self.model.model.device == 'cpu':
+				if store_as_tuple:
+					raise NotImplementedError("Cannot store_as_tuple with CPU inference")
 				return super().populate_h(nodes)
 			if self.backlogged_node is not None:
 				nodes += [self.backlogged_node]
@@ -109,16 +109,22 @@ def get_improved_heuristic_solver(solver):
 					prompts.append(prompt)
 				else:
 					prev_checked.add(i)
-					nodes[i].h = heuristics[-1] + self.checked_prompts[prompt]
+					if not store_as_tuple:
+						nodes[i].h = heuristics[-1] + self.checked_prompts[prompt]
+					else:
+						nodes[i].h = (heuristics[-1], self.checked_prompts[prompt])
 			
 			differences = self.model.get_difference(prompts)
 			for i in range(len(nodes)):
 				if i not in prev_checked:
 					difference = differences.pop(0)
-					nodes[i].h = difference if self.target == 'dec' else heuristics[i] + difference
+					if not store_as_tuple:
+						nodes[i].h = heuristics[i] + difference
+					else:
+						nodes[i].h = (heuristics[i], difference) # Used when populate_h is called externally, usually for gb data
 					self.checked_prompts[prompts.pop(0)] = difference
 			if self.backlogged_node is not None:
-				nodes.pop() # Pop so it is not considered in the children
+				nodes.pop() # Pop so the backlogged root node is not considered in the children
 				self.backlogged_node = None
 			return nodes
 
@@ -138,7 +144,7 @@ def get_improved_heuristic_solver(solver):
 				self.checked_prompts[prompt] = difference
 			else:
 				difference = self.checked_prompts[prompt]
-			return difference if self.target == 'dec' else h + difference
+			return h + difference
 
 	return ModelAStar
 

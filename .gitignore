@@ -3,4 +3,5 @@ models
 __pycache__
 trash
 out
+data_expts
 mazelib
