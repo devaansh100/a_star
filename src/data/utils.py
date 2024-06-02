@@ -12,12 +12,45 @@ import sys
 sys.path.append('data/mazelib')
 from mazelib import Maze
 from mazelib.generate.Prims import Prims
+from algorithm import Dijkstra_Maze
+import warnings
 
 def generate_maze(width, height):
 	m = Maze()
 	m.generator = Prims(width, height)
 	m.generate()
 	return m
+
+def generate_multipath_maze(maze):
+	d_alg = Dijkstra_Maze(maze)
+	dist_s = d_alg.dijkstra()
+	dist_g = d_alg.dijkstra(from_start=False)
+	grouped = np.where(dist_s <= dist_g, 1, 2) # starts are 1, goals are 2
+	grouped[d_alg.puzzle == 1] = 0
+	patterns = [[1, 0, 2]]
+	wall_breaking_thresolds = [0.3]
+	walls_broken = 0
+	for pattern, wall_breaking_threshold in zip(patterns, wall_breaking_thresolds):
+		for row in range(d_alg.size[0]): # Iterating over each row
+			for i in range(len(grouped[row]) - len(pattern)): # Iterating over each subarray in a row
+				if np.array_equal(grouped[row, i:i + len(pattern)], pattern) or np.array_equal(grouped[row, i:i + len(pattern)], pattern[::-1]):
+					for j in range(len(pattern)):  # If pattern is found, breaking the walls in puzzle where pattern_indices = 0
+						if pattern[j] == 0:
+							assert d_alg.puzzle[row, i + j] == 1
+							if random.random() > wall_breaking_threshold:
+								d_alg.puzzle[row, i + j] = 0
+								walls_broken += 1
+
+		for col in range(d_alg.size[1]):
+			for i in range(len(grouped[col]) - len(pattern)):
+				if np.array_equal(grouped.T[col, i:i + len(pattern)], pattern) or np.array_equal(grouped.T[col, i:i + len(pattern)], pattern[::-1]):
+					for j in range(len(pattern)):
+						if pattern[j] == 0:
+							assert d_alg.puzzle[i + j, col] == 1
+							if random.random() > wall_breaking_threshold:
+								d_alg.puzzle[i + j, col] = 0
+								walls_broken += 1
+	return convert_array_to_maze(d_alg.puzzle, d_alg.start, d_alg.goal), walls_broken
 
 def create_maze_dataset(params, num_train, num_val, num_test, size):
 	puzzles = []
@@ -29,13 +62,16 @@ def create_maze_dataset(params, num_train, num_val, num_test, size):
 		while iters > 0:
 			m.generate_entrances(start_outer=False, end_outer=False)
 			maze = convert_array_to_maze(m.grid, m.start, m.end)
+			maze, walls_broken = generate_multipath_maze(maze)
 			alg = AStar_maze(maze)
 			if maze not in mazes:
 				mazes.add(maze)
 				alg.search()
 				if alg.optimal_plan is not None:
-					if len(alg.optimal_plan) > 2*size and len(alg.closed)/len(alg.optimal_plan) > 3:
+					if len(alg.optimal_plan) > 2*size and len(alg.closed)/len(alg.optimal_plan) > 3.5: # NOTE: Change to 35 for long
 						# print(maze)
+						# print(walls_broken)
+						# breakpoint()
 						puzzles.append((maze, alg))
 						p_bar.n += 1
 						p_bar.refresh()
@@ -111,7 +147,7 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 				alg = solver(puzzle, subsample = subsample, terminate_after = terminate_after)
 				alg.search()
 				if alg.optimal_plan is not None:
-					if alg.iterations > min_iterations:
+					if alg.iterations > min_iterations and len(alg.optimal_plan) > 30:
 						puzzle = convert_array_to_sb(alg.puzzle, alg.docks, alg.initial_boxes, alg.initial_pos)
 						astar.append(puzzle)
 						algs.append(alg)
@@ -149,10 +185,9 @@ def annotate_deceptive_nodes(alg):
 			num_generations -= 1
 			node = node.parent
 
-
-def optimal_sample(alg, num_chosen, difficulty = 'optimal'):
+def optimal_sample(alg, num_chosen, params, difficulty = 'optimal'):
 	optimal_cost = alg.optimal_plan[-1].g
-	if difficulty == 'optimal':
+	if difficulty == 'optimal' or difficulty == 'dist':
 		optimal_plan = alg.optimal_plan.copy()
 	else:
 		if difficulty == 'hard':
@@ -160,10 +195,20 @@ def optimal_sample(alg, num_chosen, difficulty = 'optimal'):
 		elif difficulty == 'med':
 			optimal_plan = alg.optimal_plan[len(alg.optimal_plan)//3: 2 * len(alg.optimal_plan)//3]
 		elif difficulty == 'easy':
-			optimal_plan = alg.optimal_plan[2*len(alg.optimal_plan)//3:]
+			optimal_plan = alg.optimal_plan[2 * len(alg.optimal_plan)//3:]
 		elif difficulty == 'easy_med':
 			optimal_plan = alg.optimal_plan[len(alg.optimal_plan)//3:]
-	nodes = random.sample(optimal_plan, min(num_chosen, len(optimal_plan)))
+		elif difficulty == 'easy_hard':
+			optimal_plan = alg.optimal_plan[2 * len(alg.optimal_plan)//3:] + alg.optimal_plan[:len(alg.optimal_plan)//3]
+		elif difficulty == 'med_hard':
+			optimal_plan = alg.optimal_plan[: 2 * len(alg.optimal_plan)//3]
+	if difficulty == 'dist':
+		dist_factor = params.dist_factor
+		w = (1/dist_factor) * torch.log(torch.tensor([len(optimal_plan)/i for i in range(len(optimal_plan), 0, -1)]))
+		w = torch.softmax(w, dim = 0).numpy()
+		nodes = np.random.choice(optimal_plan, replace = False, size = num_chosen, p = w)
+	else:
+		nodes = random.sample(optimal_plan, min(num_chosen, len(optimal_plan)))
 	optimal_costs = [optimal_cost - node.g for node in nodes]
 	return nodes, optimal_costs
 
@@ -198,10 +243,14 @@ def create_supervision(params, solver = None):
 			for alg in tqdm(algs, desc = alg_file):
 				initial_str = get_puzzle_str(alg, alg.closed[0])
 				closed_set = alg.closed.copy()
-				nodes, optimal_costs = optimal_sample(alg, seqs_per_puzzle, difficulty = params.sample.split('optimal_')[-1])
+				nodes, optimal_costs = optimal_sample(alg, seqs_per_puzzle, params, difficulty = params.sample.split('optimal_')[-1])
 				for node, optimal_cost in zip(nodes, optimal_costs):
 					dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost))
-			alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{params.sample}.pkl')
+			if params.sample == 'optimal_dist':
+				sample = params.sample + '_' + str(params.dist_factor)
+			else:
+				sample = params.sample
+			alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{sample}.pkl')
 			with open(f'{path}/{split}/supervised_{alg_file}', 'wb') as f:
 				pkl.dump(dataset, f)
 			print(f'Created {len(dataset)}')

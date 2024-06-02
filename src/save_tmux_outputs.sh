@@ -3,6 +3,7 @@ mkdir data_expts
 tmux list-sessions | cut -d: -f1 | while read -r session_name; do
     # Define the output directory for the session
     session_output_file="data_expts/$session_name.txt"
+    rm "$session_output_file"
     touch "$session_output_file"
     windows=$(tmux list-windows -t "$session_name" -F "#{window_index}")
     # Iterate over each window

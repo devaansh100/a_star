@@ -115,6 +115,7 @@ def get_improved_heuristic_solver(solver):
 						nodes[i].h = (heuristics[-1], self.checked_prompts[prompt])
 			
 			differences = self.model.get_difference(prompts)
+			# breakpoint()
 			for i in range(len(nodes)):
 				if i not in prev_checked:
 					difference = differences.pop(0)
