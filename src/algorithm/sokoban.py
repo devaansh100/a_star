@@ -29,7 +29,8 @@ class AStar_sokoban(AStar):
 		self.initial_boxes = boxes
 		self.initial_pos = player
 
-	def h(self, player_pos, boxes):
+	def h(self, node):
+		player_pos, boxes = node.info
 		undocked_boxes = []
 		empty_docks = []
 		for box in boxes:
@@ -47,8 +48,7 @@ class AStar_sokoban(AStar):
 			h = sum([G[i, j] for i, j in zip(d, b)])
 		else:
 			h = manhattan_distance(empty_docks[0], undocked_boxes[0]) if len(empty_docks) == 1 else 0
-		# NOTE: Strictly, you should subtract 1 from here since the player and box can never be at the same position. But this shouldn't have significantly different effects
-		h += min([manhattan_distance(player_pos, box) for box in boxes])
+		h += min([manhattan_distance(player_pos, box) - 1 for box in boxes])
 
 		return int(h)
 

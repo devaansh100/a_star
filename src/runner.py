@@ -22,13 +22,9 @@ class Runner():
         self.model_dir = params.model_dir + '/' + params.domain + '/' + params.job + '/' + params.base_model
         self.model_suffix = ''
         if params.loss == 'l2':
-            self.model_suffix += f'_l2_{params.num_heads}'
-        if params.gb:
-            self.model_suffix += '_gb'
+            self.model_suffix += f'_l2_1'
         if len(params.suffix):
             self.model_suffix = f'_{params.suffix}'
-        # if 'ss' not in self.model_suffix:
-        #     self.model_suffix += '_20'
         
         self.prompt = open(params.prompt_file).read()
         legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
@@ -55,7 +51,6 @@ class Runner():
         print(f'Loading from {self.model_dir}/{filename}')
         checkpoint = torch.load(self.model_dir + '/' + filename, map_location = torch.device(self.params.device))
         model.load_state_dict(checkpoint['model'], strict = False)
-        # breakpoint()
         if load_opt:
             self.optimizer.load_state_dict(checkpoint['optimizer'])
         return model, checkpoint['epoch']
@@ -163,6 +158,31 @@ class Runner():
 
         return ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, itr, itr_optimal
 
+    def oracle_ilr(self, oracle_type, std = 0):
+        ilr_p, swc_p = [], []
+        num_perf = 0
+        p_bar = tqdm(zip(self.test_puzzles['raw'], self.test_puzzles['alg']),  total = len(self.test_puzzles['raw']))
+        for i, (puzzle, ref_alg) in enumerate(p_bar):
+            oracle = Oracle_maze(puzzle, astar = ref_alg, type = oracle_type, std = std)
+            oracle.search()
+            num_perf += oracle.num_perf
+            ilr_p.append(len(ref_alg.closed)/len(oracle.closed))
+            swc_p.append(len(ref_alg.optimal_plan)/len(oracle.optimal_plan))
+        
+        ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, _, _ = self.get_ilr_metrics(ilr_p, swc_p, [1]*len(ilr_p), [1]*len(ilr_p))
+
+        print(oracle_type)
+        print(f'ILR-on-solved: {ilr}')
+        print(f'ILR-on-optimal: {ilr_optimal}')
+        # print(f'ILR-on-improved: {ilr_improved}')
+        # print(f'Improved %: {n_better}')
+        # print(f'ILR-on-worsened: {ilr_worsened}')
+        # print(f'Worsened %: {n_worse}')
+        print(f'SWC: {swc}')
+        print(f'Optimal %: {n_optimal}')
+        # print(f'Same %: {round(100 - n_better - n_worse, 2)}')
+        # print(f'# Perfect: {round(num_perf/len(self.test_puzzles["raw"]), 2)}')
+
     def test_ilr(self, model):
         algs, ilr_p, swc_p = [], [], []
         time_p, time_ref = [], []
@@ -186,17 +206,7 @@ class Runner():
                 bootstrapped_plans.append(alg)
                 p_bar.set_postfix({'swc': round(sum(swc_p)/(i + 1), 2), 'ilr': round(sum(ilr_p)/(i + 1), 4), 'ilr_p': round(ilr_p[-1], 2), 'swc_p': round(swc_p[-1], 2)})
 
-        if len(self.params.create_gb_data) > 0:
-            for idx in tqdm(range(len(bootstrapped_plans)), desc = 'Refactoring gb plans'):
-                if ilr_p[idx] > 1 and swc_p[idx] == 1: # If new plan is optimal with better heuristic, use that one. Else use the one in ref_alg
-                    bootstrapped_plans[idx].populate_h(bootstrapped_plans[idx].optimal_plan, store_as_tuple = True) # Refactoring node.h as (heuristic, pred_diff). No actual inference will be performed as prompts are cached
-                    self.test_puzzles['alg'][idx].optimal_plan = bootstrapped_plans[idx].optimal_plan # Only ref_alg is pickleable. NOTE: Only use with optimal sampling
-                bootstrapped_plans[idx].populate_h(self.test_puzzles['alg'][idx].optimal_plan, store_as_tuple = True)
-            
-            with open(os.path.join(self.params.data_dir, self.params.dataset, self.params.test_ilr[0], 'alg_' + self.params.test_ilr[1] + f'_{self.params.create_gb_data}.pkl'), 'wb') as f:
-                pkl.dump(self.test_puzzles['alg'], f)
-
-        # time_ref = self.get_astar_runtimes()
+        # time_ref = self.get_astar_runtimes() # NOTE: Uncomment for ITR results. Also comment next line
         time_ref = [0] * len(time_p)
         ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, itr, itr_optimal = self.get_ilr_metrics(ilr_p, swc_p, time_p, time_ref)
 
@@ -240,7 +250,6 @@ class Runner():
         return avg_diff, overestimated_p, overestimated_a, underestimated_p, underestimated_a, optimal_p
     
     def test(self, model, epoch):
-        new_raw_data = []
         model.eval()
         with torch.no_grad():
             p_bar = tqdm(self.val_dl, desc = f'Val {epoch}')
@@ -251,22 +260,12 @@ class Runner():
                 raw_data = batch.pop('raw')
                 batch = {k: v.to(torch.device(self.params.device)) for k, v in batch.items()}
                 diffs = model.generate(**batch)
-                if len(self.params.create_gb_data):
-                    for i in range(len(raw_data)):
-                        updated_point = list(raw_data[i])
-                        updated_point[2] = (updated_point[2], diffs[i])
-                        new_raw_data.append(tuple(updated_point))
                 gt_diffs = [int(d[3] - d[2]) for d in raw_data]
                 preds.extend(diffs)
                 gts.extend(gt_diffs)
                 disp_diffs = random.sample([(d,g) for d, g in zip(diffs, gt_diffs)], min(4, len(diffs)))
                 p_bar.set_postfix({'diffs': disp_diffs})
         
-            if len(self.params.create_gb_data):
-                file = os.path.join(self.params.data_dir, self.params.dataset, 'train', f'supervised_{self.params.train_files[0]}_{self.params.create_gb_data}.pkl')
-                with open(file, 'wb') as f:
-                    pkl.dump(new_raw_data, f)
-
         avg_diff, overestimated_p, overestimated_a, underestimated_p, underestimated_a, optimal_p = self.get_metrics(preds, gts)
         self.best_test = min(avg_diff, self.best_test)
         print(f'Epoch {epoch}:')
@@ -275,7 +274,6 @@ class Runner():
         print(f'Underestimated {underestimated_p}% by {underestimated_a}')
         print(f'Optimally predicted {optimal_p}% points')
         print(f'Avg Diff with: {tuple((i, get_score([i] * len(gts), gts)) for i in range(11 if self.params.domain == "sokoban" else 9))}')
-        # print(f'Dist: {Counter(preds)}')
         if self.best_test == avg_diff and not self.params.test:
             self.save_model(model, epoch, f'model_best_test{self.model_suffix}.pth') # NOTE: Never load from model_best_test.pth to continue training
     
@@ -298,6 +296,14 @@ class Runner():
             exit()
         
         if len(self.params.test_ilr) > 1:
+            if self.params.oracle:
+                self.oracle_ilr('perfect')
+                for std in [2, 4, 6]:
+                    print('-------------')
+                    self.oracle_ilr('hard', std = std)
+                    self.oracle_ilr('med', std = std)
+                    self.oracle_ilr('easy', std = std)
+                exit()
             self.test_ilr(model)
             exit()
 
@@ -319,8 +325,6 @@ class Runner():
             self.lr_scheduler.step()
 
         for epoch in range(last_epoch, self.params.num_epochs - 1):
-            if epoch == 20 and '_20' in self.model_suffix:
-                self.model_suffix = self.model_suffix[:-3] # Removing _20
             self.fit_one_epoch(model, epoch + 1)
             self.save_model(model, epoch + 1, f'model_latest{self.model_suffix}.pth')
             self.test(model, epoch + 1)

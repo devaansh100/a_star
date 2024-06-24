@@ -4,7 +4,7 @@ import os
 import pickle as pkl
 import numpy as np
 from algorithm.utils import *
-from algorithm import AStar_maze, AStar_sokoban
+from algorithm import AStar_maze, AStar_sokoban, Dijkstra_maze
 import glob
 from transformers import AutoTokenizer
 import torch
@@ -12,7 +12,6 @@ import sys
 sys.path.append('data/mazelib')
 from mazelib import Maze
 from mazelib.generate.Prims import Prims
-from algorithm import Dijkstra_Maze
 import warnings
 
 def generate_maze(width, height):
@@ -22,9 +21,9 @@ def generate_maze(width, height):
 	return m
 
 def generate_multipath_maze(maze):
-	d_alg = Dijkstra_Maze(maze)
-	dist_s = d_alg.dijkstra()
-	dist_g = d_alg.dijkstra(from_start=False)
+	d_alg = Dijkstra_maze(maze)
+	dist_s = d_alg.fill(from_start=True)
+	dist_g = d_alg.fill(from_start=False)
 	grouped = np.where(dist_s <= dist_g, 1, 2) # starts are 1, goals are 2
 	grouped[d_alg.puzzle == 1] = 0
 	patterns = [[1, 0, 2]]
@@ -68,10 +67,7 @@ def create_maze_dataset(params, num_train, num_val, num_test, size):
 				mazes.add(maze)
 				alg.search()
 				if alg.optimal_plan is not None:
-					if len(alg.optimal_plan) > 2*size and len(alg.closed)/len(alg.optimal_plan) > 3.5: # NOTE: Change to 35 for long
-						# print(maze)
-						# print(walls_broken)
-						# breakpoint()
+					if len(alg.optimal_plan) > 2*size and len(alg.closed)/len(alg.optimal_plan) > 3.5:
 						puzzles.append((maze, alg))
 						p_bar.n += 1
 						p_bar.refresh()
@@ -122,7 +118,7 @@ def read_boxoban(params, split, hardness = 'unfiltered'):
 		puzzles.extend(f_puzzles)
 	return puzzles
 
-def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, terminate_after = 7000, min_iterations = 0, solver = None):
+def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, terminate_after = 7000, min_iterations = 0, optimal_length = 20, solver = None):
 	solver = AStar_sokoban if solver is None else solver
 	train = read_boxoban(params, 'train')
 	val = read_boxoban(params, 'valid')
@@ -147,7 +143,7 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 				alg = solver(puzzle, subsample = subsample, terminate_after = terminate_after)
 				alg.search()
 				if alg.optimal_plan is not None:
-					if alg.iterations > min_iterations and len(alg.optimal_plan) > 30:
+					if alg.iterations > min_iterations and len(alg.optimal_plan) > optimal_length and len(alg.closed)/len(alg.optimal_plan) > 6:
 						puzzle = convert_array_to_sb(alg.puzzle, alg.docks, alg.initial_boxes, alg.initial_pos)
 						astar.append(puzzle)
 						algs.append(alg)
@@ -157,10 +153,11 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 			path = f'{params.data_dir}/{params.dataset}/{split}/'
 			os.makedirs(path, exist_ok = True)
 
-			with open(path + f'sokoban_{subsample}.txt', 'w') as f:
+			file_suffix = f'{subsample}_{optimal_length}_{min_iterations}'
+			with open(path + f'sokoban_{file_suffix}.txt', 'w') as f:
 				f.write(';'.join(astar))
 
-			with open(path + f'alg_sokoban_{subsample}.pkl', 'wb') as f:
+			with open(path + f'alg_sokoban_{file_suffix}.pkl', 'wb') as f:
 				pkl.dump(algs, f)
 			
 			# if split == 'train':
@@ -185,28 +182,32 @@ def annotate_deceptive_nodes(alg):
 			num_generations -= 1
 			node = node.parent
 
-def optimal_sample(alg, num_chosen, params, difficulty = 'optimal'):
+def optimal_sample(alg, num_chosen, params, split, difficulty = 'optimal'):
 	optimal_cost = alg.optimal_plan[-1].g
 	if difficulty == 'optimal' or difficulty == 'dist':
 		optimal_plan = alg.optimal_plan.copy()
 	else:
+		optimal_hard = alg.optimal_plan[:len(alg.optimal_plan)//3]
+		optimal_med = alg.optimal_plan[len(alg.optimal_plan)//3: 2 * len(alg.optimal_plan)//3]
+		optimal_easy = alg.optimal_plan[2 * len(alg.optimal_plan)//3:]
+		split_choice = random.random() if split == 'train' else 0
 		if difficulty == 'hard':
-			optimal_plan = alg.optimal_plan[:len(alg.optimal_plan)//3]
+			optimal_plan = optimal_hard if split_choice < 0.99 else optimal_easy + optimal_med
 		elif difficulty == 'med':
-			optimal_plan = alg.optimal_plan[len(alg.optimal_plan)//3: 2 * len(alg.optimal_plan)//3]
+			optimal_plan = optimal_med if split_choice < 0.99 else optimal_easy + optimal_hard
 		elif difficulty == 'easy':
-			optimal_plan = alg.optimal_plan[2 * len(alg.optimal_plan)//3:]
+			optimal_plan = optimal_easy if split_choice < 0.99 else optimal_med + optimal_hard
 		elif difficulty == 'easy_med':
-			optimal_plan = alg.optimal_plan[len(alg.optimal_plan)//3:]
+			optimal_plan = optimal_easy + optimal_med if split_choice < 0.99 else optimal_hard
 		elif difficulty == 'easy_hard':
-			optimal_plan = alg.optimal_plan[2 * len(alg.optimal_plan)//3:] + alg.optimal_plan[:len(alg.optimal_plan)//3]
+			optimal_plan = optimal_easy + optimal_hard if split_choice < 0.99 else optimal_med
 		elif difficulty == 'med_hard':
-			optimal_plan = alg.optimal_plan[: 2 * len(alg.optimal_plan)//3]
+			optimal_plan = optimal_med + optimal_hard if split_choice < 0.99 else optimal_easy
 	if difficulty == 'dist':
 		dist_factor = params.dist_factor
 		w = (1/dist_factor) * torch.log(torch.tensor([len(optimal_plan)/i for i in range(len(optimal_plan), 0, -1)]))
 		w = torch.softmax(w, dim = 0).numpy()
-		nodes = np.random.choice(optimal_plan, replace = False, size = num_chosen, p = w)
+		nodes = np.random.choice(optimal_plan, replace = False, size = min(num_chosen, len(optimal_plan)), p = w)
 	else:
 		nodes = random.sample(optimal_plan, min(num_chosen, len(optimal_plan)))
 	optimal_costs = [optimal_cost - node.g for node in nodes]
@@ -243,14 +244,14 @@ def create_supervision(params, solver = None):
 			for alg in tqdm(algs, desc = alg_file):
 				initial_str = get_puzzle_str(alg, alg.closed[0])
 				closed_set = alg.closed.copy()
-				nodes, optimal_costs = optimal_sample(alg, seqs_per_puzzle, params, difficulty = params.sample.split('optimal_')[-1])
+				nodes, optimal_costs = optimal_sample(alg, seqs_per_puzzle, params, split, difficulty = params.sample.split('optimal_')[-1])
 				for node, optimal_cost in zip(nodes, optimal_costs):
 					dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost))
 			if params.sample == 'optimal_dist':
 				sample = params.sample + '_' + str(params.dist_factor)
 			else:
 				sample = params.sample
-			alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{sample}.pkl')
+			alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{sample}_{seqs_per_puzzle}.pkl')
 			with open(f'{path}/{split}/supervised_{alg_file}', 'wb') as f:
 				pkl.dump(dataset, f)
 			print(f'Created {len(dataset)}')
@@ -265,62 +266,23 @@ def tokenize_data(params, datapoints, tokenizer, filename):
 		pred_diff = None
 		if isinstance(heuristic, tuple):
 			heuristic, pred_diff = heuristic
-			if params.loss == 'ft':
-				pred_diff = None
 		difference = optimal_cost - heuristic
 		input_prompt = prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(int(heuristic))).replace('{initial_str}', initial_str)
 		input_prompt = input_prompt.replace('{puzzle_legend}', legend[params.domain]).replace('{domain}', params.domain)
 		input_ids = tokenizer(input_prompt).input_ids
 		label_str = f'{int(difference)}'
-		if pred_diff == difference:
-			continue
-		if pred_diff is not None and pred_diff != difference:
-			if 't5' not in params.base_model:
-				raise NotImplementedError("GB loss does not work for decoder-only models yet")
-			if isinstance(pred_diff, int):
-				prefix_label_str = f'{int(pred_diff)}'
-				suffix_label_str = f', {int(optimal_cost - heuristic - pred_diff)}'
-			else:
-				prefix_label_str = f'{round(pred_diff, 2)}'
-				suffix_label_str = f', {round(optimal_cost - heuristic - pred_diff, 2)}'
-			label_str = prefix_label_str + suffix_label_str
-			prefix_labels = [tokenizer.bos_token_id] + tokenizer(prefix_label_str, add_special_tokens = False).input_ids
-			suffix_labels = tokenizer(suffix_label_str, add_special_tokens = False).input_ids + [tokenizer.eos_token_id]
-			labels = [-100] * len(prefix_labels) + suffix_labels
-			decoder_input_ids = prefix_labels + suffix_labels
-			labels = labels[1:]
-			decoder_input_ids = decoder_input_ids[:-1]
-		else:
+		
+		if params.loss == 'lm':
 			labels = tokenizer(label_str, add_special_tokens = 't5' in params.base_model).input_ids
 			decoder_input_ids = labels[:-1]
 			labels = labels[1:]
-			# labels[0] = -100
 
 		if params.loss == 'l2':
 			if 't5' not in params.base_model:
 				raise NotImplementedError("L2 loss does not work for decoder-only models yet")
-			# pred_1, pred_2 = label_str.split(', ')
-			# if isinstance(pred_1, int):
-			# 	pred_1, pred_2 = int(pred_1), int(pred_2)
-			# else:
-			# 	pred_1, pred_2 = float(pred_1), float(pred_2)
-			# decoder_input_ids = [tokenizer.bos_token_id] + tokenizer(str(pred_1) + ', ', add_special_tokens=False).input_ids
-			# labels = [pred_1 if pred_1 == difference else -100, pred_2]
-			# if labels[0] == -100:
-			# 	assert labels[1] != 0
 			decoder_input_ids = [tokenizer.bos_token_id]
 			labels = [int(label_str)]
-		# decoder_input_ids = None
-		# if error is None:
-		# 	labels = tokenizer(label_str, add_special_tokens = 't5' in params.base_model).input_ids
-		# 	decoder_input_ids = None
-		# else:
-		# 	prefix_label_str = label_str
-		# 	label_str = f', error = {optimal_cost - heuristic - error}'
-		# 	prefix_label_tokens = tokenizer(prefix_label_str, add_special_tokens = False).input_ids
-		# 	label_tokens = tokenizer(label_str, add_special_tokens = False).input_ids
-		# 	decoder_input_ids = [tokenizer.bos_token_id] + prefix_label_tokens + label_tokens
-		# 	labels = [-100] * len(prefix_label_tokens) + label_tokens + [tokenizer.eos_token_id] # shifted right
+
 		data_inputs.append(input_ids)
 		data_labels.append(labels)
 		if decoder_input_ids is not None:
@@ -344,21 +306,12 @@ def read_data(params, tokenizer):
 	for split in ['train', 'val']:
 		files = params.val_files if split == 'val' else params.train_files
 		for file in files:
-			with open(f'{path}/{split}/supervised_{file}.pkl', 'rb') as f:
+			filename = f'{path}/{split}/supervised_{file}.pkl'
+			with open(filename, 'rb') as f:
 				datapoints = pkl.load(f)
 				data[split]['raw'].extend(datapoints)
 			
-			tokenized_file = f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}/tokenized_{file}_{params.prompt_file.split('/')[-1].replace('.txt', '')}"
-			if params.loss == 'ft' and split == 'train':
-				tokenized_file += '_ft.pkl'
-			else:
-				tokenized_file += '.pkl'
-			if os.path.exists(tokenized_file) and not params.retokenize:
-				with open(tokenized_file, 'rb') as f:
-					tokenized_data = pkl.load(f)
-			else:
-				os.makedirs(f"{params.data_dir}/{params.dataset}/{split}/{params.base_model}", exist_ok = True)
-				tokenized_data = tokenize_data(params, datapoints, tokenizer, tokenized_file)
+			tokenized_data = tokenize_data(params, datapoints, tokenizer, filename)
 			for i in range(len(tokenized_data)):
 				data[split]['tokenized'][i].extend(tokenized_data[i])
 		if len(data[split]['tokenized'][-1]) == 0:

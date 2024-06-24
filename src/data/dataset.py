@@ -52,6 +52,7 @@ class HeuristicDataset(Dataset):
         if len(decoder_input_ids) > 0:
             out['decoder_input_ids'] = pad_sequence(decoder_input_ids, batch_first=True, padding_value = self.tokenizer.pad_token_id)
             out['decoder_attention_mask'] = torch.where(out['decoder_input_ids'] == self.tokenizer.pad_token_id, 0, 1)
+            out['decoder_attention_mask'][:, 0] = 1
         return out
 
     def collate_fn_test(self, batch): # left_padded tensor for batched generation

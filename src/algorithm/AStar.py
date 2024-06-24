@@ -53,10 +53,10 @@ class AStar():
 	
 	def populate_h(self, nodes):
 		if self.backlogged_node is not None:
-			self.backlogged_node.h = self.h(*self.backlogged_node.info)
+			self.backlogged_node.h = self.h(self.backlogged_node)
 			self.backlogged_node = None
 		for i in range(len(nodes)):
-			nodes[i].h = self.h(*nodes[i].info)
+			nodes[i].h = self.h(nodes[i])
 		return nodes
 	
 	def search(self):
@@ -103,7 +103,7 @@ def get_improved_heuristic_solver(solver):
 			heuristics = []
 			prev_checked = set()
 			for i in range(len(nodes)):
-				heuristics.append(super().h(*nodes[i].info))
+				heuristics.append(super().h(nodes[i]))
 				prompt = self.create_prompt(*nodes[i].info, heuristics[-1])
 				if prompt not in self.checked_prompts:
 					prompts.append(prompt)
@@ -115,7 +115,6 @@ def get_improved_heuristic_solver(solver):
 						nodes[i].h = (heuristics[-1], self.checked_prompts[prompt])
 			
 			differences = self.model.get_difference(prompts)
-			# breakpoint()
 			for i in range(len(nodes)):
 				if i not in prev_checked:
 					difference = differences.pop(0)
