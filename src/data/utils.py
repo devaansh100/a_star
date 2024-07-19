@@ -251,15 +251,19 @@ def create_stp_dataset(params, num_train, num_val, num_test, width, terminate_af
 					p_bar.refresh()
 
 	for split, num_puzzles in zip(['train', 'val', 'test'], [num_train, num_val, num_test]):
-		path = f'{params.data_dir}/{params.dataset}/{split}/'
-		os.makedirs(path, exist_ok = True)
-		puzzles = astar[:num_puzzles]
-		astar = astar[num_puzzles:]
-		with open(path + f'stp_{width}.txt', 'w') as f:
-			f.write(';'.join(puzzles))
+		if num_puzzles > 0:
+			path = f'{params.data_dir}/{params.dataset}/{split}/'
+			os.makedirs(path, exist_ok = True)
+			
+			puzzles = astar[:num_puzzles]
+			astar = astar[num_puzzles:]
+			with open(path + f'stp_{width}.txt', 'w') as f:
+				f.write(';'.join(puzzles))
 
-		with open(path + f'alg_stp_{width}.pkl', 'wb') as f:
-			pkl.dump(algs, f)
+			puzzle_algs = algs[:num_puzzles]
+			algs = algs[num_puzzles:]
+			with open(path + f'alg_stp_{width}.pkl', 'wb') as f:
+				pkl.dump(puzzle_algs, f)
 
 def optimal_sample(alg, num_chosen, params, split, difficulty = 'optimal'):
 	optimal_cost = alg.optimal_plan[-1].g
@@ -315,37 +319,32 @@ def create_supervision(params, solver = None):
 		seqs_per_puzzle = params.train_seqs if split == 'train' else params.val_seqs
 		alg_files = [f'{path}/{split}/{alg_file}.pkl' for alg_file in params.alg_files] if len(params.alg_files) else glob.glob(f'{path}/{split}/*.pkl')
 		for alg_file in alg_files:
-			if params.domain == 'sokoban':
-				incorrect_file = str(params.create_data[3]) not in alg_file or 'supervised' in alg_file
-			else:
-				incorrect_file = 'supervised' in alg_file
-
-			if incorrect_file:
-				continue
-			dataset = []
-			try:
-				with open(alg_file, 'rb') as f:
-					algs = pkl.load(f)
-			except Exception as e:
-				print(str(e))
-				continue
-			for alg in tqdm(algs, desc = alg_file):
-				initial_str = get_puzzle_str(alg, alg.closed[0])
-				closed_set = alg.closed.copy()
-				nodes, optimal_costs = optimal_sample(alg, seqs_per_puzzle, params, split, difficulty = params.sample.split('optimal_')[-1])
-				for node, optimal_cost in zip(nodes, optimal_costs):
-					dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost))
-			if params.sample == 'optimal_dist':
-				sample = params.sample + '_' + str(params.dist_factor)
-			else:
-				sample = params.sample
-			alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{sample}_{seqs_per_puzzle}.pkl')
-			with open(f'{path}/{split}/supervised_{alg_file}', 'wb') as f:
-				pkl.dump(dataset, f)
-			print(f'Created {len(dataset)}')
+			incorrect_file = str(params.create_data[3]) not in alg_file or 'supervised' in alg_file if params.domain == 'sokoban' else 'supervised' in alg_file
+			if not incorrect_file:
+				dataset = []
+				try:
+					with open(alg_file, 'rb') as f:
+						algs = pkl.load(f)
+				except Exception as e:
+					print(str(e))
+					continue
+				for alg in tqdm(algs, desc = alg_file):
+					initial_str = get_puzzle_str(alg, alg.closed[0])
+					closed_set = alg.closed.copy()
+					nodes, optimal_costs = optimal_sample(alg, seqs_per_puzzle, params, split, difficulty = params.sample.split('optimal_')[-1])
+					for node, optimal_cost in zip(nodes, optimal_costs):
+						dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost))
+				if params.sample == 'optimal_dist':
+					sample = params.sample + '_' + str(params.dist_factor)
+				else:
+					sample = params.sample
+				alg_file = alg_file.split('/')[-1].replace('.pkl', f'_{sample}_{seqs_per_puzzle}.pkl')
+				with open(f'{path}/{split}/supervised_{alg_file}', 'wb') as f:
+					pkl.dump(dataset, f)
+				print(f'Created {len(dataset)}')
 
 def tokenize_data(params, datapoints, tokenizer, filename):
-	legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock", 'stp': '-1 - empty space'}
+	legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock", 'stp': '0 - empty space'}
 	data_inputs, data_labels, data_decoder_inputs = [], [], []
 	with open(params.prompt_file) as f:
 		prompt = f.read()

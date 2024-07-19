@@ -113,6 +113,6 @@ class T5ImprovedHeuristic(nn.Module):
 		if self.params.loss == 'l2':
 			preds = self.ffn(output.last_hidden_state[:, 0])
 			loss = self.l2_loss(preds.squeeze(-1), labels.squeeze(-1)) if labels is not None else None
-			return (loss, preds)
+			return (loss, preds.squeeze(-1))
 		else:
 			return output

@@ -92,10 +92,8 @@ def get_improved_heuristic_solver(solver):
 			self.checked_prompts = {}
 			super().__init__(*args, **kwargs)
 		
-		def populate_h(self, nodes, store_as_tuple = False):
+		def populate_h(self, nodes):
 			if self.model.model.device == 'cpu':
-				if store_as_tuple:
-					raise NotImplementedError("Cannot store_as_tuple with CPU inference")
 				return super().populate_h(nodes)
 			if self.backlogged_node is not None:
 				nodes += [self.backlogged_node]
@@ -109,19 +107,13 @@ def get_improved_heuristic_solver(solver):
 					prompts.append(prompt)
 				else:
 					prev_checked.add(i)
-					if not store_as_tuple:
-						nodes[i].h = heuristics[-1] + self.checked_prompts[prompt]
-					else:
-						nodes[i].h = (heuristics[-1], self.checked_prompts[prompt])
+					nodes[i].h = heuristics[-1] + self.checked_prompts[prompt]
 			
 			differences = self.model.get_difference(prompts)
 			for i in range(len(nodes)):
 				if i not in prev_checked:
 					difference = differences.pop(0)
-					if not store_as_tuple:
-						nodes[i].h = heuristics[i] + difference
-					else:
-						nodes[i].h = (heuristics[i], difference) # Used when populate_h is called externally, usually for gb data
+					nodes[i].h = heuristics[i] + difference
 					self.checked_prompts[prompts.pop(0)] = difference
 			if self.backlogged_node is not None:
 				nodes.pop() # Pop so the backlogged root node is not considered in the children

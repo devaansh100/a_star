@@ -12,7 +12,8 @@ from collections import Counter
 import pickle as pkl
 import time
 import os
-
+legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock", 'stp': '0 - empty space'}
+astar_solver = {'maze': AStar_maze, 'sokoban': AStar_sokoban, 'stp': AStar_stp}
 class Runner():
     def __init__(self, params, train_dl, test_dl, test_puzzles):
         self.train_dl = train_dl
@@ -27,7 +28,6 @@ class Runner():
             self.model_suffix = f'_{params.suffix}'
         
         self.prompt = open(params.prompt_file).read()
-        legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
         self.prompt = self.prompt.replace('{puzzle_legend}', legend[self.params.domain]).replace('{domain}', self.params.domain)
 
         self.best_test = float('inf')
@@ -79,7 +79,6 @@ class Runner():
     
     def prepare_model_for_astar(self, model, prompt): # NOTE: DO NOT USE KV_CACHE FOR BATCHED OUTPUTS
         if self.params.device == 'cuda':
-            legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
             prompt = prompt.replace('{puzzle_legend}', legend[self.params.domain]).replace('{domain}', self.params.domain)
             source_idx = prompt.index('puzzle_str')
             prompt_inputs = prompt[:source_idx]
@@ -187,8 +186,7 @@ class Runner():
         algs, ilr_p, swc_p = [], [], []
         time_p, time_ref = [], []
         bootstrapped_plans = []
-        solver = get_improved_heuristic_solver(AStar_maze if self.params.domain == 'maze' else AStar_sokoban)
-        # solver = get_random_heuristic_solver(AStar_maze if self.params.domain == 'maze' else AStar_sokoban)
+        solver = get_improved_heuristic_solver(astar_solver[self.params.domain])
         with torch.no_grad():
             model.eval()
             # model, kv_cache, prompt = self.prepare_model_for_astar(model, self.prompt)
@@ -225,7 +223,7 @@ class Runner():
     
     def get_astar_runtimes(self):
         time_ref = []
-        solver = AStar_maze if self.params.domain == 'maze' else AStar_sokoban
+        solver = astar_solver[self.params.domain]
         for puzzle in tqdm(self.test_puzzles['raw']):
             alg = solver(puzzle)
             start = time.time()
@@ -276,7 +274,6 @@ class Runner():
         print(f'Avg Diff with: {tuple((i, get_score([i] * len(gts), gts)) for i in range(11 if self.params.domain == "sokoban" else 9))}')
         if self.best_test == avg_diff and not self.params.test:
             self.save_model(model, epoch, f'model_best_test{self.model_suffix}.pth') # NOTE: Never load from model_best_test.pth to continue training
-    
     
     def train(self, model):
         model = model.to(torch.device(self.params.device))

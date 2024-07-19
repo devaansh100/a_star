@@ -37,7 +37,7 @@ if __name__ == '__main__':
 	parser.add_argument('--model-dir', default = '../models')
 	parser.add_argument('--domain', choices = ['maze', 'sokoban', 'stp'], default = 'sokoban')
 	# parser.add_argument('--dataset', required =  True, choices = ['maze-grade', 'maze-eval', 'maze-multipath-eval', 'maze-large', 'maze-multipath-small', 'maze-multipath-med','maze-multipath-tiny', 'maze-multipath-long', 'maze-small', 'maze-multipath', 'maze-tiny', 'boxoban-tiny', 'boxoban-grade', 'boxoban-long', 'boxoban-long-small', 'maze-long', 'boxoban-eval', 'boxoban-large', 'boxoban-small', 'boxoban-fin', 'boxoban-fin-eval', 'boxoban-fin-small',])
-	parser.add_argument('--dataset', required =  True, choices = ['maze-multipath-eval', 'maze-multipath-small', 'boxoban-fin', 'boxoban-fin-eval', 'stp-first'])
+	parser.add_argument('--dataset', required =  True, choices = ['maze-multipath-eval', 'maze-multipath-small', 'boxoban-fin', 'boxoban-fin-eval', 'stp-data', 'stp-eval'])
 	parser.add_argument('--create-data', default = '0', nargs = '+', type = int, help = 'args should be the values for arguments of create_data functions in data.utils')
 	parser.add_argument('--prompt-file', default = '../datasets/prompt.txt')
 	parser.add_argument('--grad-step', default = 1, type = int)
