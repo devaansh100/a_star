@@ -4,7 +4,7 @@ import os
 import pickle as pkl
 import numpy as np
 from algorithm.utils import *
-from algorithm import AStar_maze, AStar_sokoban, Dijkstra_maze
+from algorithm import AStar_maze, AStar_sokoban, AStar_stp, Dijkstra_maze
 import glob
 from transformers import AutoTokenizer
 import torch
@@ -174,13 +174,92 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 			# 	with open(path + f'alg_sokoban_{subsample}.pkl', 'wb') as f:
 			# 		pkl.dump(algs, f)
 
-def annotate_deceptive_nodes(alg):
-	for node in alg.closed:
-		num_generations = float('Inf')
-		while not node.is_optimal and num_generations > 0:
-			node.deception_score += 1
-			num_generations -= 1
-			node = node.parent
+
+def is_stp_solvable(arr, width):
+	inversions = 0 # Number of inversions in the array
+	row = 0        
+	blankrow = 0   # row on which empty cell exists
+	solved_array = list(range(1, width * width))
+
+	for i in range(0, len(arr)):
+		if i % width == 0:
+			row += 1 # move to the next row
+		if arr[i] == 0:
+			blankrow = row # empty cell exists on this row
+			continue
+
+		for j in range(i+1, len(arr)):
+			if arr[i] > arr[j] & arr[j] != 0:
+				inversions += 1
+
+	if width % 2 == 0:
+		if blankrow % 2 == 0:
+			return inversions % 2 == 0
+		else:
+			return inversions % 2 != 0
+	else:
+		return inversions % 2 == 0
+
+def generate_stp(width):
+	# Ref: https://github.com/pyGuru123/Python-Games/blob/a3817dd31055d9208a3f9899ff1c2c5cfb9a33e8/Picture%20Sliding%20Puzzle/game.py#L81
+	puzzle = [i for i in range(1,width * width)] + [0]
+	random.shuffle(puzzle)
+	while not is_stp_solvable(puzzle, width):
+		random.shuffle(puzzle)
+	puzzle = map(lambda x : str(x), puzzle)
+	return ' '.join(puzzle) + '\n'
+
+def read_stp(params, split):
+	puzzles = []
+	path = f'{params.data_dir}/stp-levels/puzzles_5x5_{split}/'
+	file = os.listdir(path)[0]
+	with open(path + file) as f:
+		puzzles = f.readlines()
+	return puzzles
+
+def create_stp_dataset(params, num_train, num_val, num_test, width, terminate_after = 5000, min_iterations = 0, optimal_length = 20, solver = None):
+	# train = read_stp(params, 'train')
+	# test = read_stp(params, 'test')
+	# random.shuffle(train)
+	# random.shuffle(test)
+	# for split in ['train', 'val', 'test']:
+	# 	astar, algs = [], []
+	# 	if split == 'train':
+	# 		puzzles = train
+	# 		num_puzzles = num_train
+	# 	elif split == 'val':
+	# 		puzzles = train
+	# 		num_puzzles = num_val
+	# 	elif split == 'test':
+	# 		puzzles = test
+	# 		num_puzzles = num_test
+	solver = AStar_stp if solver is None else solver
+	p_bar = tqdm(range(num_train + num_val + num_test))
+	stps = set()
+	astar, algs = [], []
+	while len(astar) < num_train + num_val + num_test:
+		stp = generate_stp(width)
+		if stp not in stps:
+			stps.add(stp)
+			alg = solver(stp, terminate_after = terminate_after)
+			alg.search()
+			if alg.optimal_plan is not None:
+				if alg.iterations > min_iterations and len(alg.optimal_plan) > optimal_length and len(alg.closed)/len(alg.optimal_plan) > 6:
+					astar.append(stp)
+					algs.append(alg)
+					p_bar.n += 1
+					p_bar.refresh()
+
+	for split, num_puzzles in zip(['train', 'val', 'test'], [num_train, num_val, num_test]):
+		path = f'{params.data_dir}/{params.dataset}/{split}/'
+		os.makedirs(path, exist_ok = True)
+		puzzles = astar[:num_puzzles]
+		astar = astar[num_puzzles:]
+		with open(path + f'stp_{width}.txt', 'w') as f:
+			f.write(';'.join(puzzles))
+
+		with open(path + f'alg_stp_{width}.pkl', 'wb') as f:
+			pkl.dump(algs, f)
 
 def optimal_sample(alg, num_chosen, params, split, difficulty = 'optimal'):
 	optimal_cost = alg.optimal_plan[-1].g
@@ -219,9 +298,18 @@ def create_supervision(params, solver = None):
 			puzzle_str = convert_array_to_sb(alg.puzzle, alg.docks, node.boxes, node.pos)
 		elif params.domain == 'maze':
 			puzzle_str = convert_array_to_maze(alg.puzzle, node.pos, alg.goal)
+		elif params.domain == 'stp':
+			puzzle_str = convert_array_to_stp(node.pos)
 		return puzzle_str
 
-	solver = AStar_sokoban if params.domain == 'sokoban' else AStar_maze if solver is None else solver
+	if solver is None:
+		if params.domain == 'sokoban':
+			solver = AStar_sokoban
+		elif params.domain == 'maze':
+			solver = AStar_maze
+		elif params.domain == 'stp':
+			solver = AStar_stp
+
 	path = f'{params.data_dir}/{params.dataset}'	
 	for split in ['train', 'val']:
 		seqs_per_puzzle = params.train_seqs if split == 'train' else params.val_seqs
@@ -257,7 +345,7 @@ def create_supervision(params, solver = None):
 			print(f'Created {len(dataset)}')
 
 def tokenize_data(params, datapoints, tokenizer, filename):
-	legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock"}
+	legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock", 'stp': '-1 - empty space'}
 	data_inputs, data_labels, data_decoder_inputs = [], [], []
 	with open(params.prompt_file) as f:
 		prompt = f.read()

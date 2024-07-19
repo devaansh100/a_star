@@ -2,6 +2,7 @@ import heapq
 import numpy as np
 import torch
 from .utils import *
+import time
 
 class Node():
 	def __init__(self, pos, g, h = 0):
@@ -11,7 +12,6 @@ class Node():
 		self.parent = None
 		self.children = []
 		self.is_optimal = False
-		self.deception_score = 0
 
 	@property
 	def cost(self):
@@ -32,7 +32,8 @@ class AStar():
 	def __init__(self, *args, **kwargs):
 		self.initialise_state(*args, **kwargs)
 		self.enable_bar = kwargs['enable_bar'] if 'enable_bar' in kwargs else False
-		self.size = self.puzzle.shape
+		if not hasattr(self, 'size'):
+			self.size = self.puzzle.shape
 		heapq.heapify(self.frontier)
 		self.closed = []
 		self.optimal_plan = None
@@ -64,7 +65,6 @@ class AStar():
 		while len(self.frontier) > 0 and self.terminate_after > 0:
 			self.iterations += 1
 			self.terminate_after -= 1
-			
 			node = self.select()
 			if self.check_goal(node):
 				self.plan(node)
@@ -131,8 +131,10 @@ def get_improved_heuristic_solver(solver):
 		def create_prompt(self, *args):
 			if self.domain == 'maze':
 				puzzle_str = convert_array_to_maze(self.puzzle, args[0:2], self.goal)
-			else:
+			elif self.domain == 'sokoban':
 				puzzle_str = convert_array_to_sb(self.puzzle, self.docks, args[1], args[0])
+			elif self.domain == 'stp':
+				puzzle_str = convert_array_to_stp(args[0])
 			prompt = self.prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(args[-1]))
 			return prompt
 

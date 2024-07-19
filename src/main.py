@@ -31,19 +31,19 @@ def main(params):
 	runner.train(model)
 
 if __name__ == '__main__':
-	init_seed(43)
 	parser = argparse.ArgumentParser()
 	parser.add_argument('--job', required=True)
 	parser.add_argument('--data-dir', default = '../datasets')
 	parser.add_argument('--model-dir', default = '../models')
-	parser.add_argument('--domain', choices = ['maze', 'sokoban'], default = 'sokoban')
+	parser.add_argument('--domain', choices = ['maze', 'sokoban', 'stp'], default = 'sokoban')
 	# parser.add_argument('--dataset', required =  True, choices = ['maze-grade', 'maze-eval', 'maze-multipath-eval', 'maze-large', 'maze-multipath-small', 'maze-multipath-med','maze-multipath-tiny', 'maze-multipath-long', 'maze-small', 'maze-multipath', 'maze-tiny', 'boxoban-tiny', 'boxoban-grade', 'boxoban-long', 'boxoban-long-small', 'maze-long', 'boxoban-eval', 'boxoban-large', 'boxoban-small', 'boxoban-fin', 'boxoban-fin-eval', 'boxoban-fin-small',])
-	parser.add_argument('--dataset', required =  True, choices = ['maze-multipath-eval', 'maze-multipath-small', 'boxoban-fin', 'boxoban-fin-eval'])
+	parser.add_argument('--dataset', required =  True, choices = ['maze-multipath-eval', 'maze-multipath-small', 'boxoban-fin', 'boxoban-fin-eval', 'stp-first'])
 	parser.add_argument('--create-data', default = '0', nargs = '+', type = int, help = 'args should be the values for arguments of create_data functions in data.utils')
 	parser.add_argument('--prompt-file', default = '../datasets/prompt.txt')
 	parser.add_argument('--grad-step', default = 1, type = int)
 	parser.add_argument('--base-model', default = 'code-t5', choices = model_dict.keys())
 	parser.add_argument('--test-after',  default = 3000, type = int)
+	parser.add_argument('--seed',  default = 43, type = int)
 	parser.add_argument('--bs', dest = 'batch_size', default = 64, type = int)
 	parser.add_argument('--lr', dest = 'learning_rate', default = 1e-4, type = float)
 	parser.add_argument('--lm', dest = 'load_model', default = '', type = str)
@@ -64,11 +64,12 @@ if __name__ == '__main__':
 	parser.add_argument('--bootstrap-data', default = '0', nargs = '+', type = int, help = 'args should be the values for arguments of create_data functions in data.utils')
 	parser.add_argument('--train-seqs', default = 8, type = int)
 	parser.add_argument('--val-seqs', default = 5, type = int)
-
 	params = parser.parse_args()
+	init_seed(params.seed)
+	
 	if len(params.val_files) == 0:
 		params.val_files = params.train_files
-	creator_func = {'maze': create_maze_dataset, 'sokoban': create_sokoban_dataset}
+	creator_func = {'maze': create_maze_dataset, 'sokoban': create_sokoban_dataset, 'stp': create_stp_dataset}
 	if params.create_data:
 		creator_func[params.domain](params, *params.create_data)
 		create_supervision(params)

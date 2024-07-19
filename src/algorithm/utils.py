@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import math
 
 def convert_array_to_maze(puzzle, start, goal):
 	maze_str = ''
@@ -33,7 +34,6 @@ def convert_maze_to_array(puzzle_str):
 		elif ch == '\n':
 			puzzle.append([])
 	return np.array(puzzle), start, goal
-
 
 def convert_sb_to_array(puzzle_str):
 	puzzle = np.zeros((10, 10))
@@ -87,6 +87,20 @@ def convert_array_to_sb(puzzle, docks, boxes, player):
 						ch = ' '
 			puzzle_str += ch
 	return puzzle_str.strip()
+
+def convert_stp_to_array(puzzle_str):
+	nums = puzzle_str.split(' ')
+	if nums[-1] == '\n':
+		nums = nums[:-1]
+	n = int(math.sqrt(len(nums)))
+	puzzle = np.zeros((n, n), dtype = np.int32)
+	for i in range(n):
+		for j in range(n):
+			puzzle[i,j] = int(nums.pop(0))
+	return puzzle
+
+def convert_array_to_stp(puzzle):
+	return ' '.join(map(lambda x : str(x), puzzle.flatten().tolist())) + '\n'
 
 def manhattan_distance(pos1, pos2):
 	return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
