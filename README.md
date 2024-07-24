@@ -20,9 +20,12 @@ unzip boxoban-fin-eval.zip
 ```
 
 ### Data Generation
+Use the following command to generate new puzzles/sequences for training.
 ```bash
 python main.py --domain $domain --dataset $dataset --create-data $parameters --job data_gen
 ```
+
+For sokoban and maze, additional libraries need to be clone. Refer [below](#additional-libaries)
 
 The choices for ```--domain``` and ```--dataset``` can be found in the parser choices, in ```main.py```. 
 
@@ -32,3 +35,17 @@ To only sample new nodes, without creating a new puzzle file, pass 0 for ```num_
 
 ### Training and Inference
 ```run.sh``` is used to run training and inference. Modifying the arguments in ```launch_$domain.sh``` is recommended before executing ```run.sh```. The only arguments that should need modification are ```--bs``` and ```--grad-step```.
+
+### Additional Libraries
+
+#### Maze
+For generation of mazes, we use the mazelib library. Execute the following command in the ```src/data``` directory.
+```
+git clone https://github.com/john-science/mazelib.git
+```
+
+#### Sokoban
+For sokoban, the original boxoban dataset will need to be installed. Execute the following command in the ```datasets``` directory.
+```
+git clone https://github.com/google-deepmind/boxoban-levels.git
+```
