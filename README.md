@@ -25,7 +25,7 @@ Use the following command to generate new puzzles/sequences for training.
 python main.py --domain $domain --dataset $dataset --create-data $parameters --job data_gen
 ```
 
-For sokoban and maze, additional libraries need to be clone. Refer [below](#additional-libaries)
+For sokoban and maze, additional libraries need to be clone. Refer [below](#additional-libraries)
 
 The choices for ```--domain``` and ```--dataset``` can be found in the parser choices, in ```main.py```. 
 
