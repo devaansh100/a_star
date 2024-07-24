@@ -4,7 +4,7 @@ import os
 import pickle as pkl
 import numpy as np
 from algorithm.utils import *
-from algorithm import AStar_maze, AStar_sokoban, AStar_stp, Dijkstra_maze
+from algorithm import AStar_maze, AStar_sokoban, AStar_stp, Dijkstra_maze, Node_stp
 import glob
 from transformers import AutoTokenizer
 import torch
@@ -175,7 +175,7 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 			# 		pkl.dump(algs, f)
 
 
-def is_stp_solvable(arr, width):
+def is_stp_solvable(arr, width): # TODO: Function is incorrect!!
 	inversions = 0 # Number of inversions in the array
 	row = 0        
 	blankrow = 0   # row on which empty cell exists
@@ -198,7 +198,7 @@ def is_stp_solvable(arr, width):
 		else:
 			return inversions % 2 != 0
 	else:
-		return inversions % 2 == 0
+		return inversions % 2 == 0 
 
 def generate_stp(width):
 	# Ref: https://github.com/pyGuru123/Python-Games/blob/a3817dd31055d9208a3f9899ff1c2c5cfb9a33e8/Picture%20Sliding%20Puzzle/game.py#L81
@@ -208,6 +208,32 @@ def generate_stp(width):
 		random.shuffle(puzzle)
 	puzzle = map(lambda x : str(x), puzzle)
 	return ' '.join(puzzle) + '\n'
+
+def generate_stp_simulate(width):
+	goal_number = iter(range(width * width))
+	puzzle = np.zeros((width, width), dtype = np.int32)
+	for i in range(width):
+		for j in range(width):
+			g = next(goal_number)
+			puzzle[i, j] = g
+	num_steps = random.randint(20, 30)
+	directions = (1, 0), (-1, 0), (0, 1), (0, -1)
+	empty_pos, last_pos = (0, 0), (-1, -1)
+	for _ in range(num_steps):
+		next_pos = []
+		for next_x, next_y in directions:
+			possible_pos = (empty_pos[0] + next_x, empty_pos[1] + next_y)
+			if 0 <= possible_pos[0] < width and 0 <= possible_pos[1] < width and possible_pos != last_pos:
+				next_pos.append(possible_pos)
+		next_pos = random.choice(next_pos)
+		puzzle[next_pos], puzzle[empty_pos] = puzzle[empty_pos], puzzle[next_pos]
+		last_pos, empty_pos = empty_pos, next_pos
+	puzzle = puzzle.flatten().tolist()
+	# breakpoint()
+	# assert is_stp_solvable(puzzle, width)
+	puzzle = map(lambda x : str(x), puzzle)
+	return ' '.join(puzzle) + '\n'
+
 
 def read_stp(params, split):
 	puzzles = []
@@ -238,7 +264,7 @@ def create_stp_dataset(params, num_train, num_val, num_test, width, terminate_af
 	stps = set()
 	astar, algs = [], []
 	while len(astar) < num_train + num_val + num_test:
-		stp = generate_stp(width)
+		stp = generate_stp(width) if width == 3 else generate_stp_simulate(width)
 		if stp not in stps:
 			stps.add(stp)
 			alg = solver(stp, terminate_after = terminate_after)

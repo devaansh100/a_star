@@ -1,0 +1,11 @@
+import torch
+def get_improved_heuristic(heuristic: int, difference: int):
+	'''
+		A function that takes in the admissible A* heuristic and adds to it the difference, to return a heuristic closer to the optimal cost to the goal. The difference should be calculated keeping in mind the optimal cost of the puzzle.
+	'''
+	return heuristic + difference
+
+# The difference is calculated by observing the {domain} puzzle and deducing the optimal cost to goal. The heuristic is subtracted from this optimal cost
+# {puzzle_legend}
+puzzle_str = "{puzzle_str}"
+improved_heuristic = get_improved_heuristic({heuristic}, 

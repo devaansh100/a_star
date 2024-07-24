@@ -56,7 +56,7 @@ if __name__ == '__main__':
 	parser.add_argument('--device', choices = ['cuda', 'cpu'], default = 'cuda')
 	parser.add_argument('--sample', choices = ['optimal', 'optimal_dist', 'optimal_easy', 'optimal_med', 'optimal_hard', 'optimal_easy_med', 'optimal_easy_hard', 'optimal_med_hard'], default = 'optimal')
 	parser.add_argument('--dist-factor', default = 2, type = float)
-	parser.add_argument('--loss', default = 'ce', choices = ['ce', 'l2'], type = str)
+	parser.add_argument('--loss', default = 'lm', choices = ['lm', 'l2'], type = str)
 	parser.add_argument('--train-files', nargs = '*', default = [])
 	parser.add_argument('--val-files', nargs = '*', default = [])
 	parser.add_argument('--alg-files', nargs = '*', default = [])
