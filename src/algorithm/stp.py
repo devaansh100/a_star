@@ -6,12 +6,12 @@ import random
 class Node_stp(Node):
 	def __init__(self, board_pos, g, h =  0):
 		super().__init__(board_pos, g, h)
-		self.empty_pos = np.nonzero(self.pos == 0)
+		self.empty_pos = np.nonzero(self.pos == '0')
 		self.str_state = convert_array_to_stp(board_pos)
 
 	@property
 	def info(self):
-		return self.pos
+		return (self.pos,)
 		
 	def is_equal(self, node):
 		return self.str_state == node.str_state
@@ -21,25 +21,20 @@ class AStar_stp(AStar):
 		super().__init__(*args, **kwargs)
 	
 	def initialise_state(self, *args, **kwargs):
-		puzzle = convert_stp_to_array(args[0])
+		puzzle_str = args[0]
+		puzzle = convert_stp_to_array(puzzle_str)
 		self.backlogged_node = Node_stp(puzzle, 0)
 		self.frontier = [self.backlogged_node]
 		self.size = puzzle.shape
-		self.goal = np.zeros(self.size, dtype = np.int32)
-		self.goal_dict = {}
-		goal_number = iter(range(self.size[0] * self.size[1]))
-		for i in range(self.size[0]):
-			for j in range(self.size[1]):
-				g = next(goal_number)
-				self.goal[i, j] = g
-				self.goal_dict[g] = (i, j)
+		self.goal = convert_stp_to_array(get_stp_goal(puzzle))
+		self.goal_dict = {self.goal[i, j]: (i, j) for j in range(self.size[1]) for i in range(self.size[0])}
 		self.goal = convert_array_to_stp(self.goal)
 
 	def h(self, node):
 		h = 0
 		for i in range(self.size[0]):
 			for j in range(self.size[1]):
-				if node.pos[i, j] != 0:
+				if node.pos[i, j] != '0':
 					h += manhattan_distance((i, j), self.goal_dict[node.pos[i, j]])
 		return h
 

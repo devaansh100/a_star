@@ -89,18 +89,21 @@ def convert_array_to_sb(puzzle, docks, boxes, player):
 	return puzzle_str.strip()
 
 def convert_stp_to_array(puzzle_str):
+	if puzzle_str[-1] == '\n':
+		puzzle_str = puzzle_str[:-1]
+	
 	nums = puzzle_str.split(' ')
-	if nums[-1] == '\n':
-		nums = nums[:-1]
 	n = int(math.sqrt(len(nums)))
-	puzzle = np.zeros((n, n), dtype = np.int32)
+	puzzle = np.zeros((n, n), dtype = '<U21')
 	for i in range(n):
 		for j in range(n):
-			puzzle[i,j] = int(nums.pop(0))
+			puzzle[i,j] = nums.pop(0)
 	return puzzle
 
 def convert_array_to_stp(puzzle):
-	return ' '.join(map(lambda x : str(x), puzzle.flatten().tolist())) + '\n'
+	puzzle = puzzle.flatten().tolist()
+	# goal = np.sort(puzzle)
+	return ' '.join(map(lambda x : str(x), puzzle)) + '\n'
 
 def manhattan_distance(pos1, pos2):
 	return abs(pos1[0] - pos2[0]) + abs(pos1[1] - pos2[1])
@@ -122,3 +125,17 @@ def extract_differences(diffs):
 					vals[j] = 0
 			diffs[i] = sum(vals)
 	return diffs
+
+def get_stp_goal(puzzle):
+	if not isinstance(puzzle, np.ndarray):
+		puzzle = convert_stp_to_array(puzzle)
+	return ' '.join(np.sort(puzzle.flatten()).tolist()) + '\n'
+
+def convert_stp_to_chars(puzzle_str):
+	n = convert_stp_to_array(puzzle_str).shape[0]
+	chars = np.sort(np.random.choice(np.array([*'qwertyuiopasdfghjklzxcvbnm']), size = n**2 - 1, replace = False))
+	puzzle_str = ' ' + puzzle_str
+	for i in range(1, n**2):
+		puzzle_str = puzzle_str.replace(f' {i} ', f' {chars[i - 1]} ').replace(f' {i}\n', f' {chars[i - 1]}\n')
+	puzzle_str = puzzle_str[1:]
+	return puzzle_str

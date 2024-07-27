@@ -174,31 +174,28 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 			# 	with open(path + f'alg_sokoban_{subsample}.pkl', 'wb') as f:
 			# 		pkl.dump(algs, f)
 
+def is_stp_solvable(puzzle, size):    
+    # Count inversions
+    inversions = 0
+    for i in range(len(puzzle)):
+        for j in range(i + 1, len(puzzle)):
+            if puzzle[i] != 0 and puzzle[j] != 0 and puzzle[i] > puzzle[j]:
+                inversions += 1
+    
+    # Find the row of the blank tile (0) from the bottom
+    blank_row = size - (puzzle.index(0) // size)
+    
+    # Check solvability based on puzzle size
+    if size % 2 == 1:
+        # Odd-sized puzzle is solvable if number of inversions is even
+        return inversions % 2 == 0
+    else:
+        # Even-sized puzzle is solvable if:
+        # - the blank is on an even row counting from the bottom and number of inversions is odd
+        # - or the blank is on an odd row counting from the bottom and number of inversions is even
+        return (blank_row % 2 == 0 and inversions % 2 == 1) or \
+               (blank_row % 2 == 1 and inversions % 2 == 0)
 
-def is_stp_solvable(arr, width): # TODO: Function is incorrect!!
-	inversions = 0 # Number of inversions in the array
-	row = 0        
-	blankrow = 0   # row on which empty cell exists
-	solved_array = list(range(1, width * width))
-
-	for i in range(0, len(arr)):
-		if i % width == 0:
-			row += 1 # move to the next row
-		if arr[i] == 0:
-			blankrow = row # empty cell exists on this row
-			continue
-
-		for j in range(i+1, len(arr)):
-			if arr[i] > arr[j] & arr[j] != 0:
-				inversions += 1
-
-	if width % 2 == 0:
-		if blankrow % 2 == 0:
-			return inversions % 2 == 0
-		else:
-			return inversions % 2 != 0
-	else:
-		return inversions % 2 == 0 
 
 def generate_stp(width):
 	# Ref: https://github.com/pyGuru123/Python-Games/blob/a3817dd31055d9208a3f9899ff1c2c5cfb9a33e8/Picture%20Sliding%20Puzzle/game.py#L81
@@ -234,31 +231,7 @@ def generate_stp_simulate(width):
 	puzzle = map(lambda x : str(x), puzzle)
 	return ' '.join(puzzle) + '\n'
 
-
-def read_stp(params, split):
-	puzzles = []
-	path = f'{params.data_dir}/stp-levels/puzzles_5x5_{split}/'
-	file = os.listdir(path)[0]
-	with open(path + file) as f:
-		puzzles = f.readlines()
-	return puzzles
-
 def create_stp_dataset(params, num_train, num_val, num_test, width, terminate_after = 5000, min_iterations = 0, optimal_length = 20, solver = None):
-	# train = read_stp(params, 'train')
-	# test = read_stp(params, 'test')
-	# random.shuffle(train)
-	# random.shuffle(test)
-	# for split in ['train', 'val', 'test']:
-	# 	astar, algs = [], []
-	# 	if split == 'train':
-	# 		puzzles = train
-	# 		num_puzzles = num_train
-	# 	elif split == 'val':
-	# 		puzzles = train
-	# 		num_puzzles = num_val
-	# 	elif split == 'test':
-	# 		puzzles = test
-	# 		num_puzzles = num_test
 	solver = AStar_stp if solver is None else solver
 	p_bar = tqdm(range(num_train + num_val + num_test))
 	stps = set()
@@ -267,6 +240,7 @@ def create_stp_dataset(params, num_train, num_val, num_test, width, terminate_af
 		stp = generate_stp(width) if width == 3 else generate_stp_simulate(width)
 		if stp not in stps:
 			stps.add(stp)
+			stp = convert_stp_to_chars(stp)
 			alg = solver(stp, terminate_after = terminate_after)
 			alg.search()
 			if alg.optimal_plan is not None:
@@ -376,9 +350,9 @@ def tokenize_data(params, datapoints, tokenizer, filename):
 		prompt = f.read()
 	for datapoint in tqdm(datapoints, desc = filename):
 		initial_str, puzzle_str, heuristic, optimal_cost = datapoint
-		pred_diff = None
-		if isinstance(heuristic, tuple):
-			heuristic, pred_diff = heuristic
+		if params.domain == 'stp':
+			stp_goal = get_stp_goal(puzzle_str)
+			puzzle_str = puzzle_str.strip() + '"\ngoal = "' + stp_goal.strip()
 		difference = optimal_cost - heuristic
 		input_prompt = prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(int(heuristic))).replace('{initial_str}', initial_str)
 		input_prompt = input_prompt.replace('{puzzle_legend}', legend[params.domain]).replace('{domain}', params.domain)

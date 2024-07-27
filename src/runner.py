@@ -95,7 +95,7 @@ class Runner():
     def get_ilr_metrics(self, ilr_p_list, swc_p_list, time_p, time_ref):
         ilr, swc = 0, 0
         ilr_improved, ilr_worsened, ilr_optimal = 0, 0, 0
-        n_better, n_worse, n_optimal = 0, 0, 0
+        n_better, n_worse, n_optimal, n_unsolved = 0, 0, 0, 0
 
         itr, itr_optimal = 0, 0
         for i, (ilr_p, swc_p) in enumerate(zip(ilr_p_list, swc_p_list)):
@@ -110,6 +110,9 @@ class Runner():
             if swc_p == 1:
                 ilr_optimal += ilr_p
                 n_optimal += 1
+            
+            if swc_p == ilr_p == 0:
+                n_unsolved += 1
             
             itr_p = time_ref[i]/time_p[i]
             itr += itr_p
@@ -155,7 +158,10 @@ class Runner():
         n_optimal /= len(self.test_puzzles['raw'])
         n_optimal = round(100 * n_optimal, 2)
 
-        return ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, itr, itr_optimal
+        n_unsolved /= len(self.test_puzzles['raw'])
+        n_unsolved = round(100 * n_unsolved, 2)
+
+        return ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, n_unsolved, itr, itr_optimal
 
     def oracle_ilr(self, oracle_type, std = 0):
         ilr_p, swc_p = [], []
@@ -168,7 +174,7 @@ class Runner():
             ilr_p.append(len(ref_alg.closed)/len(oracle.closed))
             swc_p.append(len(ref_alg.optimal_plan)/len(oracle.optimal_plan))
         
-        ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, _, _ = self.get_ilr_metrics(ilr_p, swc_p, [1]*len(ilr_p), [1]*len(ilr_p))
+        ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, n_unsolved, _, _ = self.get_ilr_metrics(ilr_p, swc_p, [1]*len(ilr_p), [1]*len(ilr_p))
 
         print(oracle_type)
         print(f'ILR-on-solved: {ilr}')
@@ -180,6 +186,7 @@ class Runner():
         print(f'SWC: {swc}')
         print(f'Optimal %: {n_optimal}')
         # print(f'Same %: {round(100 - n_better - n_worse, 2)}')
+        # print(f'Unsolved %: {round(n_unsolved, 2)}')
         # print(f'# Perfect: {round(num_perf/len(self.test_puzzles["raw"]), 2)}')
 
     def test_ilr(self, model):
@@ -192,21 +199,25 @@ class Runner():
             # model, kv_cache, prompt = self.prepare_model_for_astar(model, self.prompt)
             p_bar = tqdm(zip(self.test_puzzles['raw'], self.test_puzzles['alg']),  total = len(self.test_puzzles['raw']))
             for i, (puzzle, ref_alg) in enumerate(p_bar):
-                alg = solver(puzzle, model = model, prompt = self.prompt, domain = self.params.domain)
+                alg = solver(puzzle, model = model, prompt = self.prompt, domain = self.params.domain, terminate_after = 25000)
                 # alg = solver(puzzle, domain = self.params.domain, strategy = 'uniform')
                 start = time.time()
                 alg.search()
                 end = time.time() 
                 time_p.append((end - start) * 1000)
                 algs.append(alg)
-                ilr_p.append(len(ref_alg.closed)/len(alg.closed))
-                swc_p.append(ref_alg.optimal_plan[-1].g/alg.optimal_plan[-1].g)
+                if alg.optimal_plan is not None:
+                    ilr_p.append(len(ref_alg.closed)/len(alg.closed))
+                    swc_p.append(ref_alg.optimal_plan[-1].g/alg.optimal_plan[-1].g)
+                else:
+                    ilr_p.append(0)
+                    swc_p.append(0)
                 bootstrapped_plans.append(alg)
                 p_bar.set_postfix({'swc': round(sum(swc_p)/(i + 1), 2), 'ilr': round(sum(ilr_p)/(i + 1), 4), 'ilr_p': round(ilr_p[-1], 2), 'swc_p': round(swc_p[-1], 2)})
 
         # time_ref = self.get_astar_runtimes() # NOTE: Uncomment for ITR results. Also comment next line
         time_ref = [0] * len(time_p)
-        ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, itr, itr_optimal = self.get_ilr_metrics(ilr_p, swc_p, time_p, time_ref)
+        ilr, swc, ilr_improved, ilr_worsened, ilr_optimal, n_better, n_worse, n_optimal, n_unsolved, itr, itr_optimal = self.get_ilr_metrics(ilr_p, swc_p, time_p, time_ref)
 
         print(f'ILR-on-solved: {ilr}')
         print(f'ILR-on-optimal: {ilr_optimal}')
@@ -217,6 +228,7 @@ class Runner():
         print(f'SWC: {swc}')
         print(f'Optimal %: {n_optimal}')
         print(f'Same %: {round(100 - n_better - n_worse, 2)}')
+        print(f'Unsolved %: {n_unsolved}')
         print(f'ITR-on-solved: {itr}')
         print(f'ITR-on-optimal: {itr_optimal}')
 

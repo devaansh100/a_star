@@ -127,6 +127,7 @@ def get_improved_heuristic_solver(solver):
 				puzzle_str = convert_array_to_sb(self.puzzle, self.docks, args[1], args[0])
 			elif self.domain == 'stp':
 				puzzle_str = convert_array_to_stp(args[0])
+				puzzle_str = puzzle_str.strip() + '"\ngoal = "' + self.goal.strip()
 			prompt = self.prompt.replace('{puzzle_str}', puzzle_str).replace('{heuristic}', str(args[-1]))
 			return prompt
 
