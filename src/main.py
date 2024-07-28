@@ -19,7 +19,6 @@ def init_seed(seed):
 	torch.backends.cudnn.deterministic = True
 
 def main(params):
-	os.environ['TOKENIZERS_PARALLELISM'] = "false"
 	MODEL, DATASET = (T5ImprovedHeuristic, T5HeuristicDataset) if 't5' in params.base_model else (ImprovedHeuristic, HeuristicDataset)
 	model = MODEL(params, model_dict[params.base_model], params.device)
 	data = read_data(params, model.tokenizer)
@@ -54,7 +53,7 @@ if __name__ == '__main__':
 	parser.add_argument('--test-ilr', nargs = '+', type = str, default=['test'])
 	parser.add_argument('--num-epochs', default = 40, type = int)
 	parser.add_argument('--device', choices = ['cuda', 'cpu'], default = 'cuda')
-	parser.add_argument('--sample', choices = ['optimal', 'optimal_dist', 'optimal_easy', 'optimal_med', 'optimal_hard', 'optimal_easy_med', 'optimal_easy_hard', 'optimal_med_hard'], default = 'optimal')
+	parser.add_argument('--sample', choices = ['semdedup', 'semdedup-f', 'optimal', 'optimal_dist', 'optimal_easy', 'optimal_med', 'optimal_hard', 'optimal_easy_med', 'optimal_easy_hard', 'optimal_med_hard'], default = 'optimal')
 	parser.add_argument('--dist-factor', default = 2, type = float)
 	parser.add_argument('--loss', default = 'lm', choices = ['lm', 'l2'], type = str)
 	parser.add_argument('--train-files', nargs = '*', default = [])
@@ -66,7 +65,7 @@ if __name__ == '__main__':
 	parser.add_argument('--val-seqs', default = 5, type = int)
 	params = parser.parse_args()
 	init_seed(params.seed)
-	
+	os.environ['TOKENIZERS_PARALLELISM'] = "false"
 	if len(params.val_files) == 0:
 		params.val_files = params.train_files
 	creator_func = {'maze': create_maze_dataset, 'sokoban': create_sokoban_dataset, 'stp': create_stp_dataset}

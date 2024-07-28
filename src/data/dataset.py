@@ -81,10 +81,6 @@ class T5HeuristicDataset(HeuristicDataset):
         except:
             input_ids, labels, decoder_input_ids = *self.datapoints[idx], []
         if not self.val:
-            # if self.params.loss == 'l2':
-            #     _, _, heuristic, optimal_cost = self.raw_datapoints[idx]
-            #     out.append(torch.tensor([optimal_cost - heuristic]).float())
-            # else:
             if self.params.loss == 'l2':
                 out.append(torch.tensor(labels).float())
             else:

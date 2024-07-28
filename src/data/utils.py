@@ -13,6 +13,13 @@ sys.path.append('data/mazelib')
 from mazelib import Maze
 from mazelib.generate.Prims import Prims
 import warnings
+sys.path.append('../')
+from model import T5ImprovedHeuristic
+from .dataset import T5HeuristicDataset
+from torch.utils.data import DataLoader
+import torch.nn.functional as F
+model_dict = {'phi2': 'microsoft/phi-2', 'codellama': 'codellama/CodeLlama-7b-hf', 'flan-t5': 'google/flan-t5-small', 'code-t5': 'Salesforce/codet5-small', 't5': 'google-t5/t5-small', 'code-t5-base': 'Salesforce/codet5-base', 'code-t5-large': 'Salesforce/codet5-large'}
+
 
 def generate_maze(width, height):
 	m = Maze()
@@ -159,20 +166,6 @@ def create_sokoban_dataset(params, num_train, num_val, num_test, subsample, term
 
 			with open(path + f'alg_sokoban_{file_suffix}.pkl', 'wb') as f:
 				pkl.dump(algs, f)
-			
-			# if split == 'train':
-			# 	for i in range(1, 1 + len(astar) // 1000):
-			# 		with open(path + f'sokoban_{subsample}_{i * 1000}.txt', 'w') as f:
-			# 			f.write(';'.join(astar[(i - 1) * 1000 : i * 1000]))
-
-			# 		with open(path + f'alg_sokoban_{subsample}_{i * 1000}.pkl', 'wb') as f:
-			# 			pkl.dump(algs[(i - 1) * 1000 : i * 1000], f)
-			# else:
-			# 	with open(path + f'sokoban_{subsample}.txt', 'w') as f:
-			# 		f.write(';'.join(astar))
-
-			# 	with open(path + f'alg_sokoban_{subsample}.pkl', 'wb') as f:
-			# 		pkl.dump(algs, f)
 
 def is_stp_solvable(puzzle, size):    
     # Count inversions
@@ -296,16 +289,77 @@ def optimal_sample(alg, num_chosen, params, split, difficulty = 'optimal'):
 	optimal_costs = [optimal_cost - node.g for node in nodes]
 	return nodes, optimal_costs
 
-def create_supervision(params, solver = None):
-	def get_puzzle_str(alg, node):
-		if params.domain == 'sokoban':
-			puzzle_str = convert_array_to_sb(alg.puzzle, alg.docks, node.boxes, node.pos)
-		elif params.domain == 'maze':
-			puzzle_str = convert_array_to_maze(alg.puzzle, node.pos, alg.goal)
-		elif params.domain == 'stp':
-			puzzle_str = convert_array_to_stp(node.pos)
-		return puzzle_str
+def get_puzzle_str(domain, alg, node):
+	if domain == 'sokoban':
+		puzzle_str = convert_array_to_sb(alg.puzzle, alg.docks, node.boxes, node.pos)
+	elif domain == 'maze':
+		puzzle_str = convert_array_to_maze(alg.puzzle, node.pos, alg.goal)
+	elif domain == 'stp':
+		puzzle_str = convert_array_to_stp(node.pos)
+	return puzzle_str
 
+@torch.no_grad()
+def semdedup(alg, num_chosen, params, model):
+	import time
+	optimal_cost = alg.optimal_plan[-1].g
+	nodes = alg.optimal_plan.copy()
+	# print('#########')
+	# a1 = time.time()
+	node_details = [(get_puzzle_str(params.domain, alg, alg.closed[0]), get_puzzle_str(params.domain, alg, node), node.h, optimal_cost - node.g) for node in nodes]
+	# a2 = time.time()
+	params.loss = 'l2'
+	tokenized_data = tokenize_data(params, node_details, model.tokenizer, 'semdedup', disable_bar = True)
+	# a3 = time.time()
+	node_dataset = T5HeuristicDataset(params, tokenized_data, nodes, model.tokenizer)
+	# a4 = time.time()
+	node_dl = DataLoader(node_dataset, batch_size = 64, num_workers = 0, pin_memory = False, shuffle = False, collate_fn = node_dataset.collate_fn_train)
+	# s1 = time.time()
+	assert len(nodes) <= 64, "multi-batch needed"
+	embs = model.get_embeddings(node_dl)
+	# e1 = time.time()
+	# SemDeDup algorithm
+	centroid = embs.mean(dim = 0).unsqueeze(0)
+	# e2 = time.time()
+	dist_to_centroid = F.cosine_similarity(embs, centroid)
+	# e3 = time.time()
+	embs = embs[torch.argsort(dist_to_centroid, descending = True)]
+	# e4 = time.time()
+	embs = F.normalize(embs)
+	# e5 = time.time()
+	pairwise_sims = embs @ embs.T
+	# e6 = time.time()
+	triu_sim = torch.triu(pairwise_sims, diagonal = 1)
+	# e7 = time.time()
+	M = torch.max(triu_sim, dim = 0)[0]
+	w = (1/params.dist_factor) * torch.log(torch.tensor([len(alg.optimal_plan)/i for i in range(len(alg.optimal_plan), 0, -1)]))
+	w = torch.softmax(w, dim = 0).numpy()
+	# e8 = time.time()
+	_, inds1 = torch.topk(M, largest = False, k = num_chosen)
+	inds1 = inds1.cpu().numpy()
+	inds2 = np.random.choice(range(len(alg.optimal_plan)), replace = False, size = min(num_chosen, len(alg.optimal_plan)), p = w)
+	inds, counts = np.unique(np.concatenate((inds1, inds2)), return_counts = True)
+	inds = np.random.choice(inds, size = num_chosen, p = counts/counts.sum(), replace = False)
+	# e9 = time.time()
+	# print(f'node_details: {a2 - a1}')
+	# print(f'tokenize: {a3 - a2}')
+	# print(f'dataset: {a4 - a3}')
+	# print(f'dataloader: {s1 - a4}')
+	# print(f'Embedding: {e1 - s1}')
+	# print(f'Centroid: {e2 - s1}')
+	# print(f'Dist_centroid: {e3 - e2}')
+	# print(f'argsort: {e4 - e3}')
+	# print(f'normalize: {e5 - e4}')
+	# print(f'pairwise: {e6 - e5}')
+	# print(f'triu: {e7 - e6}')
+	# print(f'max: {e8 - e7}')
+	# print(f'topk: {e9 - e8}')
+	# print('#########')
+	# exit()
+	nodes = [nodes[i] for i in inds]
+	optimal_costs = [optimal_cost - node.g for node in nodes]
+	return nodes, optimal_costs
+
+def create_supervision(params, solver = None):
 	if solver is None:
 		if params.domain == 'sokoban':
 			solver = AStar_sokoban
@@ -314,7 +368,10 @@ def create_supervision(params, solver = None):
 		elif params.domain == 'stp':
 			solver = AStar_stp
 
-	path = f'{params.data_dir}/{params.dataset}'	
+	path = f'{params.data_dir}/{params.dataset}'
+	if 'semdedup' in params.sample:
+		model = T5ImprovedHeuristic(params, model_dict[params.base_model], params.device)
+		model = model.to(torch.device(params.device))
 	for split in ['train', 'val']:
 		seqs_per_puzzle = params.train_seqs if split == 'train' else params.val_seqs
 		alg_files = [f'{path}/{split}/{alg_file}.pkl' for alg_file in params.alg_files] if len(params.alg_files) else glob.glob(f'{path}/{split}/*.pkl')
@@ -328,12 +385,15 @@ def create_supervision(params, solver = None):
 				except Exception as e:
 					print(str(e))
 					continue
-				for alg in tqdm(algs, desc = alg_file):
-					initial_str = get_puzzle_str(alg, alg.closed[0])
+				for i, alg in enumerate(tqdm(algs, desc = alg_file)):
+					initial_str = get_puzzle_str(params.domain, alg, alg.closed[0])
 					closed_set = alg.closed.copy()
-					nodes, optimal_costs = optimal_sample(alg, seqs_per_puzzle, params, split, difficulty = params.sample.split('optimal_')[-1])
+					if 'optimal' in params.sample:
+						nodes, optimal_costs = optimal_sample(alg, seqs_per_puzzle, params, split, difficulty = params.sample.split('optimal_')[-1])
+					elif 'semdedup' in params.sample:
+						nodes, optimal_costs = semdedup(alg, seqs_per_puzzle, params, model)
 					for node, optimal_cost in zip(nodes, optimal_costs):
-						dataset.append((initial_str, get_puzzle_str(alg, node), node.h, optimal_cost))
+						dataset.append((initial_str, get_puzzle_str(params.domain, alg, node), node.h, optimal_cost))
 				if params.sample == 'optimal_dist':
 					sample = params.sample + '_' + str(params.dist_factor)
 				else:
@@ -343,12 +403,12 @@ def create_supervision(params, solver = None):
 					pkl.dump(dataset, f)
 				print(f'Created {len(dataset)}')
 
-def tokenize_data(params, datapoints, tokenizer, filename):
+def tokenize_data(params, datapoints, tokenizer, filename, disable_bar = False):
 	legend = {'maze': "@ - player, # - wall, . - empty cell, X - goal", 'sokoban': "@ - player, # - wall, . - empty docks, ' ' - empty cell, $ - box, X - box on dock, O - player on dock", 'stp': '0 - empty space'}
 	data_inputs, data_labels, data_decoder_inputs = [], [], []
 	with open(params.prompt_file) as f:
 		prompt = f.read()
-	for datapoint in tqdm(datapoints, desc = filename):
+	for datapoint in tqdm(datapoints, desc = filename, disable = disable_bar):
 		initial_str, puzzle_str, heuristic, optimal_cost = datapoint
 		if params.domain == 'stp':
 			stp_goal = get_stp_goal(puzzle_str)
