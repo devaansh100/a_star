@@ -303,58 +303,27 @@ def semdedup(alg, num_chosen, params, model):
 	import time
 	optimal_cost = alg.optimal_plan[-1].g
 	nodes = alg.optimal_plan.copy()
-	# print('#########')
-	# a1 = time.time()
 	node_details = [(get_puzzle_str(params.domain, alg, alg.closed[0]), get_puzzle_str(params.domain, alg, node), node.h, optimal_cost - node.g) for node in nodes]
-	# a2 = time.time()
 	params.loss = 'l2'
 	tokenized_data = tokenize_data(params, node_details, model.tokenizer, 'semdedup', disable_bar = True)
-	# a3 = time.time()
 	node_dataset = T5HeuristicDataset(params, tokenized_data, nodes, model.tokenizer)
-	# a4 = time.time()
 	node_dl = DataLoader(node_dataset, batch_size = 64, num_workers = 0, pin_memory = False, shuffle = False, collate_fn = node_dataset.collate_fn_train)
-	# s1 = time.time()
 	assert len(nodes) <= 64, "multi-batch needed"
 	embs = model.get_embeddings(node_dl)
-	# e1 = time.time()
-	# SemDeDup algorithm
 	centroid = embs.mean(dim = 0).unsqueeze(0)
-	# e2 = time.time()
 	dist_to_centroid = F.cosine_similarity(embs, centroid)
-	# e3 = time.time()
 	embs = embs[torch.argsort(dist_to_centroid, descending = True)]
-	# e4 = time.time()
 	embs = F.normalize(embs)
-	# e5 = time.time()
 	pairwise_sims = embs @ embs.T
-	# e6 = time.time()
 	triu_sim = torch.triu(pairwise_sims, diagonal = 1)
-	# e7 = time.time()
 	M = torch.max(triu_sim, dim = 0)[0]
 	w = (1/params.dist_factor) * torch.log(torch.tensor([len(alg.optimal_plan)/i for i in range(len(alg.optimal_plan), 0, -1)]))
 	w = torch.softmax(w, dim = 0).numpy()
-	# e8 = time.time()
 	_, inds1 = torch.topk(M, largest = False, k = num_chosen)
 	inds1 = inds1.cpu().numpy()
 	inds2 = np.random.choice(range(len(alg.optimal_plan)), replace = False, size = min(num_chosen, len(alg.optimal_plan)), p = w)
 	inds, counts = np.unique(np.concatenate((inds1, inds2)), return_counts = True)
 	inds = np.random.choice(inds, size = num_chosen, p = counts/counts.sum(), replace = False)
-	# e9 = time.time()
-	# print(f'node_details: {a2 - a1}')
-	# print(f'tokenize: {a3 - a2}')
-	# print(f'dataset: {a4 - a3}')
-	# print(f'dataloader: {s1 - a4}')
-	# print(f'Embedding: {e1 - s1}')
-	# print(f'Centroid: {e2 - s1}')
-	# print(f'Dist_centroid: {e3 - e2}')
-	# print(f'argsort: {e4 - e3}')
-	# print(f'normalize: {e5 - e4}')
-	# print(f'pairwise: {e6 - e5}')
-	# print(f'triu: {e7 - e6}')
-	# print(f'max: {e8 - e7}')
-	# print(f'topk: {e9 - e8}')
-	# print('#########')
-	# exit()
 	nodes = [nodes[i] for i in inds]
 	optimal_costs = [optimal_cost - node.g for node in nodes]
 	return nodes, optimal_costs

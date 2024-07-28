@@ -118,20 +118,8 @@ class T5ImprovedHeuristic(nn.Module):
 			return output
 	
 	def get_embeddings(self, dl):
-		# embs = []
-		# import time
 		for batch in dl:
-			# # s1 = time.time()
 			batch.pop('raw'), batch.pop('labels')
-			# # e1 = time.time()
-			# print(batch.keys())
 			batch = {k: v.to(torch.device(self.params.device)) for k, v in batch.items()}
-			# # e2 = time.time()
 			output = self.model(**batch, output_hidden_states=True)
-			# # e3 = time.time()
-			# print(f'pop: {e1 - s1}')
-			# print(f'cuda: {e2 - e1}')
-			# print(f'FP: {e3 - e2}')
-			# embs.append(output.decoder_hidden_states[-1].squeeze(1))
-		# embs = torch.cat(embs, dim = 0)
 		return output.decoder_hidden_states[-1].squeeze(1)
