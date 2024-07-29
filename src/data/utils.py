@@ -281,7 +281,9 @@ def optimal_sample(alg, num_chosen, params, split, difficulty = 'optimal'):
 			optimal_plan = optimal_med + optimal_hard if split_choice < 0.99 else optimal_easy
 	if difficulty == 'dist':
 		dist_factor = params.dist_factor
-		w = (1/dist_factor) * torch.log(torch.tensor([len(optimal_plan)/i for i in range(len(optimal_plan), 0, -1)]))
+		w = (1/dist_factor) * torch.log(torch.tensor([len(optimal_plan)/i for i in range(len(optimal_plan), 0, -1)])) # Log
+		# w = (1/dist_factor) * torch.tensor([len(optimal_plan)/i for i in range(len(optimal_plan), 0, -1)]) # No Log
+		# w = (1/dist_factor) * torch.tensor([i/len(optimal_plan) for i in range(1, len(optimal_plan) + 1)]) # Lin
 		w = torch.softmax(w, dim = 0).numpy()
 		nodes = np.random.choice(optimal_plan, replace = False, size = min(num_chosen, len(optimal_plan)), p = w)
 	else:
