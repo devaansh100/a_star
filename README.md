@@ -1,6 +1,8 @@
 # Accelerating A* Search with Language Models
 
-Official code implementation for the paper "[A Training Data Recipe to Accelerate A* Search with Language Models](https://arxiv.org/abs/2407.09985)".
+Official code implementation for the paper "[A Training Data Recipe to Accelerate A* Search with Language Models](https://aclanthology.org/2024.findings-emnlp.391/)", accepted at Findings of EMNLP 2024.
+
+[arxiv](https://arxiv.org/abs/2407.09985)
 
 ## Environment
 
@@ -17,6 +19,9 @@ cd datasets
 unzip maze.zip
 unzip boxoban-fin.zip
 unzip boxoban-fin-eval.zip
+unzip stp-alph/test.zip
+unzip stp-alph/val.zip
+unzip semdedup.zip # For the coresets created by semdedup
 ```
 
 ### Data Generation
@@ -25,7 +30,7 @@ Use the following command to generate new puzzles/sequences for training.
 python main.py --domain $domain --dataset $dataset --create-data $parameters --job data_gen
 ```
 
-For sokoban and maze, additional libraries need to be clone. Refer [below](#additional-libraries)
+For sokoban and maze, additional libraries need to be cloned. Refer [below](#additional-libraries)
 
 The choices for ```--domain``` and ```--dataset``` can be found in the parser choices, in ```main.py```. 
 
@@ -49,3 +54,4 @@ For sokoban, the original boxoban dataset will need to be installed. Execute the
 ```
 git clone https://github.com/google-deepmind/boxoban-levels.git
 ```
+
