@@ -55,3 +55,13 @@ For sokoban, the original boxoban dataset will need to be installed. Execute the
 git clone https://github.com/google-deepmind/boxoban-levels.git
 ```
 
+
+If the code and/or method was useful to your work, consider citing us:
+```
+@inproceedings{gupta-li-2024-training,
+    title = "A Training Data Recipe to Accelerate A* Search with Language Models",
+    author = "Gupta, Devaansh and Li, Boyang",
+    booktitle = "Findings of the Association for Computational Linguistics: EMNLP 2024",
+    year = "2024",
+}
+```
